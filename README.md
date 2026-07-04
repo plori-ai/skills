@@ -16,7 +16,7 @@ npx skills add plori-ai/skills
 
 | Skill | What it teaches |
 | --- | --- |
-| [`plori`](./plori/SKILL.md) | Connect to plori over MCP or REST, authenticate (OAuth 2.1 or API key), create agents, invoke them and read replies, answer human-in-the-loop requests, schedule deferred runs |
+| [`plori`](./plori/SKILL.md) | Connect to plori over MCP, the `@plori/cli` command, or REST, authenticate (OAuth 2.1 or API key), create agents, invoke them and read replies, answer human-in-the-loop requests, schedule deferred runs |
 
 ## Notes
 
@@ -24,7 +24,8 @@ npx skills add plori-ai/skills
   `https://plori.ai/.well-known/agent-skills/` (Agent Skills Discovery RFC); both are
   generated from the same source and updated together on every plori release.
 - plori also runs a remote MCP server at `https://api.plori.ai/mcp` for clients with
-  native MCP support; the skill covers both paths.
+  native MCP support, and ships a CLI ([`@plori/cli`](https://www.npmjs.com/package/@plori/cli),
+  `npm i -g @plori/cli`) for terminal agents; the skill covers all three paths.
 - Questions or issues: [dev@plori.ai](mailto:dev@plori.ai) or
   [github.com/plori-ai/plori](https://github.com/plori-ai/plori).
 

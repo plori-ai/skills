@@ -1,6 +1,6 @@
 ---
 name: plori
-description: Create and drive plori agents (each an AI agent on its own cloud computer) from any MCP client or over REST. Covers authentication (OAuth 2.1 or API key), creating agents, invoking them and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
+description: Create and drive plori agents (each an AI agent on its own cloud computer) from any MCP client, the plori CLI, or over REST. Covers authentication (OAuth 2.1 or API key), creating agents, invoking them and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
 ---
 
 # Using plori from an agent
@@ -11,7 +11,7 @@ work, and read their replies programmatically.
 
 ## Connect
 
-MCP (recommended): Streamable HTTP at `https://api.plori.ai/mcp`.
+MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/mcp`.
 
 - OAuth 2.1: compliant MCP clients connect with no hand-copied key. An unauthenticated
   request returns 401 with the discovery chain (RFC 9728 Protected Resource Metadata at
@@ -20,6 +20,12 @@ MCP (recommended): Streamable HTTP at `https://api.plori.ai/mcp`.
   email one-time code.
 - API key: the account owner provisions a key at https://plori.ai and you send
   `Authorization: Bearer plori_sk_...`.
+
+CLI (recommended from a terminal): `npm i -g @plori/cli`, or run it without installing
+via `npx -y @plori/cli`, gives you the `plori` command for the same operations from your
+shell. Authenticate with `plori login` or by setting `PLORI_API_KEY`. Output is
+human-readable on a terminal and a single JSON document when piped or with `--json`, so it
+composes in scripts. Commands are listed under "CLI commands" below.
 
 REST: the same operations at `https://api.plori.ai/v1` with the same bearer token.
 Full authentication instructions: https://plori.ai/auth.md
@@ -42,6 +48,25 @@ or value for input requests).
 Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
 fire_at) invokes the agent later as an ordinary run.
 
+## CLI commands
+
+The CLI mirrors the tools above; an agent is addressable by name or id, and every command
+accepts `--json`.
+
+- `plori create <name>`: get or create an agent by name (reusing a name returns the
+  existing agent). `plori agents`, `plori agent <name>`, `plori set-model <name> <model>`,
+  `plori delete <name> --yes`.
+- `plori run <name> "message"`: send a message and, by default, wait for the reply and
+  print it. Add `--follow` to stream the turn live, or `--no-wait` to get a run id back
+  immediately. Pass `-` as the message to read it from stdin.
+- `plori result <name> <run-id>` (add `--wait` to block) and `plori runs <name>` read
+  run status and history.
+- `plori inputs <name>` lists runs paused on a human request; `plori answer <run-id>
+  <tool-call-id> --approve|--deny|--value <v>` replies.
+- `plori schedule <name> "prompt" --in <seconds>` (or `--at <rfc3339>`) defers a run;
+  `plori schedules <name>` and `plori unschedule <name> <id>` manage them.
+- `plori credits`, `plori usage`, `plori disk` read account state.
+
 ## Costs and limits
 
 Running an agent spends credits; check `get_credits` before invoking. Agent count and
@@ -52,5 +77,6 @@ credential; there is no cross-account access.
 
 - Integration front door: https://plori.ai/agents.md
 - MCP connect guide: https://plori.ai/mcp
+- CLI on npm: https://www.npmjs.com/package/@plori/cli
 - Authentication detail: https://plori.ai/auth.md
 - Site map for agents: https://plori.ai/llms.txt
