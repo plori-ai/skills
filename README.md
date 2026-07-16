@@ -16,7 +16,7 @@ npx skills add plori-ai/skills
 
 | Skill | What it teaches |
 | --- | --- |
-| [`plori`](./plori/SKILL.md) | Connect to plori over MCP, the `@plori/cli` command, or REST, authenticate (OAuth 2.1 or API key), create agents, invoke them and read replies, answer human-in-the-loop requests, schedule deferred runs |
+| [`plori`](./plori/SKILL.md) | Connect to plori over MCP, the `@plori/cli` command, or REST, authenticate (OAuth 2.1 or API key), create agents, invoke them and read replies, answer human-in-the-loop requests, schedule deferred runs, build and run workflows |
 
 ## Notes
 
