@@ -23,7 +23,8 @@ MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/
 
 CLI (recommended from a terminal): `npm i -g @plori/cli`, or run it without installing
 via `npx -y @plori/cli`, gives you the `plori` command for the same operations from your
-shell. Authenticate with `plori login` or by setting `PLORI_API_KEY`. Output is
+shell. `plori login` opens the browser for the same email-OTP OAuth flow; CI and other
+headless callers use `plori login --key plori_sk_...` or set `PLORI_API_KEY`. Output is
 human-readable on a terminal and a single JSON document when piped or with `--json`, so it
 composes in scripts. Commands are listed under "CLI commands" below.
 
