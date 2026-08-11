@@ -39,7 +39,8 @@ Account and agents: `list_agents`, `get_agent`, `create_agent`
 
 Runs: `invoke_agent` sends a message and by default blocks until the turn finishes,
 returning the assistant's reply. Pass `wait=false` to get a `run_id` immediately and
-poll `get_run_result`. `list_runs` lists recent runs.
+poll `get_run_result`; pass `max_turn_tokens` to cap the turn. `cancel_run` stops an
+in-flight run asynchronously. `list_runs` lists recent runs.
 
 Human in the loop: a run can pause on an approval or input request (status
 `awaiting_input`). Read the queue with `list_pending_inputs` and reply with
@@ -53,14 +54,20 @@ Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
 fire_at) invokes the agent later as an ordinary run.
 
 Connections: `list_connections` shows the account's third-party OAuth provider status,
-authorization and expiry times, and configured scopes. It never returns tokens or client secrets.
+authorization and expiry times, and configured scopes. `status` is the re-authentication
+predicate; an authorized grant with an old expiry refreshes lazily on use. It never returns
+tokens or client secrets.
 
 Workflows: `list_workflows` (optional agent_id UUID, or "none" for unassigned),
 `get_workflow` (workflow_id; returns metadata plus the pinned step projection),
+`get_workflow_version` (workflow_id + version; returns the full definition with parameter
+values), `edit_workflow` (workflow_id + base_version + constrained ops; creates a draft
+version under CAS and does not activate it),
 `create_workflow` (name, optional description/trigger_kind/cron_expr),
 `run_workflow` (runs a workflow now: a real execution billed like any run,
 returning the execution, terminal or still `running`), `list_workflow_executions`
-(workflow_id; recent execution history), and `get_workflow_execution` to poll one.
+(workflow_id; recent execution history), and `get_workflow_execution` to poll one and read
+its full per-step input/output payloads.
 A workflow's steps are built by an agent; these tools manage and run the result.
 
 ## CLI commands
