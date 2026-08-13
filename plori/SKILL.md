@@ -21,12 +21,18 @@ MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/
 - API key: the account owner provisions a key at https://plori.ai and you send
   `Authorization: Bearer plori_sk_...`.
 
-CLI (recommended from a terminal): `npm i -g @plori/cli`, or run it without installing
-via `npx -y @plori/cli`, gives you the `plori` command for the same operations from your
-shell. `plori login` opens the browser for the same email-OTP OAuth flow; CI and other
-headless callers use `plori login --key plori_sk_...` or set `PLORI_API_KEY`. Output is
-human-readable on a terminal and a single JSON document when piped or with `--json`, so it
-composes in scripts. Commands are listed under "CLI commands" below.
+CLI (recommended from a terminal): install with
+`curl -fsSL https://plori.ai/install.sh | sh` (one static binary, no sudo and no Node; on
+Windows `irm https://plori.ai/install.ps1 | iex`), or `npm i -g @plori/cli`, or run it
+without installing via `npx -y @plori/cli`. That gives you the `plori` command for the
+same operations from your shell. The shell installer puts the binary in `~/.local/bin`
+and edits no shell rc file, so run `export PATH="$HOME/.local/bin:$PATH"` after it
+before you call `plori` (the Windows script sets the user PATH itself).
+`plori login` opens the browser for the same email-OTP
+OAuth flow; CI and other headless callers use `plori login --key plori_sk_...` or set
+`PLORI_API_KEY`. Output is human-readable on a terminal and a single JSON document when
+piped or with `--json`, so it composes in scripts. Commands are listed under "CLI
+commands" below.
 
 REST: the same operations at `https://api.plori.ai/v1` with the same bearer token.
 Full authentication instructions: https://plori.ai/auth.md
@@ -75,6 +81,11 @@ A workflow's steps are built by an agent; these tools manage and run the result.
 The CLI mirrors the tools above; an agent is addressable by name or id, and every command
 accepts `--json`.
 
+- `plori attach <name|session-id>`: open a live session in the terminal (history, a
+  prompt, streaming output, and approvals answered in place). It is interactive and
+  expects a human at the keyboard: as a calling agent, prefer the one-shot commands
+  below, and use `--read-only` if you only need to tail a session. It writes plain
+  text, never JSON, and redirecting stdin or stdout already selects read-only.
 - `plori create <name>`: get or create an agent by name (reusing a name returns the
   existing agent). `plori agents`, `plori agent <name>`, `plori set-model <name> <model>`,
   `plori delete <name> --yes`.
