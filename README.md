@@ -3,8 +3,8 @@
 [![Install with skills.sh](https://skills.sh/b/plori-ai/skills)](https://skills.sh/plori-ai/skills)
 
 Skills that teach any coding agent (Claude Code, Codex, Cursor, Copilot, Gemini CLI,
-and 40+ other clients) how to use [plori](https://plori.ai): cloud computers for AI
-agents, with persistent disks, real tools, and memory that survives between sessions.
+and 40+ other clients) how to use [plori](https://plori.ai): persistent cloud environments for AI
+agents, with durable disks, real tools, and memory that stays with each agent.
 
 ## Install
 
