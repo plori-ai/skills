@@ -2,11 +2,27 @@
 
 [![Install with skills.sh](https://skills.sh/b/plori-ai/skills)](https://skills.sh/plori-ai/skills)
 
-Skills that teach any coding agent (Claude Code, Codex, Cursor, Copilot, Gemini CLI,
-and 40+ other clients) how to use [plori](https://plori.ai): persistent cloud environments for AI
-agents, with durable disks, real tools, and memory that stays with each agent.
+Instructions for coding agents to use [plori](https://plori.ai): a cloud AI agent
+with its own persistent environment.
 
-## Install
+## Connect from Claude Code
+
+Paste this into an interactive Claude Code conversation:
+
+> Read https://plori.ai/.well-known/agent-skills/plori/SKILL.md and install/connect Plori over MCP.
+
+Claude reads the instructions and configures MCP if needed. When a new server has
+not loaded, it asks you to type `/reload-plugins` in the same conversation. With
+pairing, open the short address Claude shows, enter the code, verify your email,
+and approve the connection. You can approve from a phone while Claude Code runs on
+a remote machine.
+
+No installed skill or plugin is required for this flow. Other clients use their
+own setup steps in the [connection guide](https://plori.ai/mcp).
+
+## Install the skill for reuse
+
+To keep these instructions available across conversations, install the skill:
 
 ```sh
 npx skills add plori-ai/skills

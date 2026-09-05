@@ -21,6 +21,68 @@ MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/
 - API key: the account owner provisions a key at https://plori.ai and you send
   `Authorization: Bearer plori_sk_...`.
 
+### Claude Code: connect from this conversation
+
+Read these instructions in the current conversation before starting authentication.
+Installing a skill or plugin is optional. Use this flow only in interactive Claude Code
+when its Plori MCP client exposes both `authenticate` and `complete_authentication`.
+Other clients use their ordinary OAuth or API-key setup above.
+
+1. Check the current MCP configuration and active tools. Reuse an existing Plori server
+   at `https://api.plori.ai/mcp`; do not add duplicate entries or replace a different
+   server with the same name. If missing, configure it once with
+   `claude mcp add --transport http plori https://api.plori.ai/mcp`.
+   Confirm the server is available in this conversation before authenticating. Saving
+   configuration alone does not prove that it loaded. If its tools are missing, ask
+   the user to type `/reload-plugins` in this Claude Code conversation, then resume
+   these steps in the same session. This also refreshes MCP configuration when no
+   plugins are installed. It is a user command; do not try to invoke it through the
+   Skill tool. Confirm the authentication tools are available before proceeding.
+2. If Plori tools already work, the connection is complete. Otherwise, call the
+   client's Plori `authenticate` tool using its exposed schema. Keep the returned
+   authorization URL intact. Do not construct a new OAuth request or change its state,
+   redirect URI, or PKCE challenge.
+3. POST JSON `{"authorization_url":"<the exact client URL>"}` to
+   `https://api.plori.ai/oauth/pair`. The response contains `user_code`,
+   `verification_uri`, `verification_uri_complete`, `device_code`,
+   `expires_in` (seconds), and `interval` (seconds). Keep `device_code` private.
+4. Tell the user: "Open <verification_uri> and enter <user_code>. Sign in and approve
+   the connection; I will continue when you finish." The user can open the page on
+   their phone. Display the short address and code, not the authorization or callback
+   URL. Do not ask the user to copy a callback URL into chat.
+5. Poll `https://api.plori.ai/oauth/pair/poll` with JSON
+   `{"device_code":"<device_code>"}`. Keep only one request in flight, allow each
+   request at least 30 seconds to finish, and wait at least `interval` seconds
+   between requests. The server can hold a pending request for 25 seconds.
+   Read pending and failure responses from the JSON `error` field, not `status`.
+   On `error: "authorization_pending"`, continue. On `error: "slow_down"`, use the
+   larger of your previous delay plus five seconds and the response's `interval`
+   for all subsequent requests. Honor `Retry-After` when present on HTTP 429.
+   On HTTP 503 with `error: "temporarily_unavailable"`, preserve this pairing and
+   the pending client authentication. Wait at least the larger of your poll interval
+   and `Retry-After` (five seconds), then retry the same device code. A temporary
+   failure does not extend `expires_in`; retry only within the original four-minute
+   window while the client authentication remains pending.
+6. On `status: "approved"`, pass the returned `callback_url` directly to the same client's
+   `complete_authentication` tool using its exposed schema. Do not navigate to the
+   loopback URL or exchange the code yourself: the client owns the PKCE verifier.
+   Then discover Plori tools and call `list_agents` to confirm the connection before
+   reporting success. This verification does not create an agent or start paid work.
+
+Stop on `access_denied`; do not retry a denied request automatically. On
+`expired_token`, an already-consumed pairing, or a client authentication timeout,
+start a fresh client authentication before creating another pairing. Never reuse the
+old authorization URL. Pairing lasts four minutes to fit within the client's pending
+login. If the approved response is lost, restart the whole flow; the callback is
+returned only once. Keep approval polling active while the user signs in.
+
+Remote Control can use this flow only when it controls that same interactive Claude
+Code process and the two authentication tools are available. A separate hosted
+Claude.ai connector or Agent SDK session needs its own supported authentication flow.
+URLs can still appear in client tool results; do not promise to hide tool transcripts.
+
+### CLI and REST
+
 CLI (recommended from a terminal): install with
 `curl -fsSL https://plori.ai/install.sh | sh` (one static binary, no sudo and no Node; on
 Windows `irm https://plori.ai/install.ps1 | iex`), or `npm i -g @plori/cli`, or run it
@@ -113,7 +175,7 @@ credential; there is no cross-account access.
 
 ## More
 
-- Integration front door: https://plori.ai/agents.md
+- Integration entry point: https://plori.ai/agents.md
 - MCP connect guide: https://plori.ai/mcp
 - CLI on npm: https://www.npmjs.com/package/@plori/cli
 - Authentication detail: https://plori.ai/auth.md
