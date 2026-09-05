@@ -54,9 +54,15 @@ Other clients use their ordinary OAuth or API-key setup above.
    `{"device_code":"<device_code>"}`. Keep only one request in flight, allow each
    request at least 30 seconds to finish, and wait at least `interval` seconds
    between requests. The server can hold a pending request for 25 seconds.
-   On `authorization_pending`, continue. On `slow_down`, use the larger of your
-   previous delay plus five seconds and the response's `interval` for all subsequent
-   requests. Honor `Retry-After` when present on HTTP 429.
+   Read pending and failure responses from the JSON `error` field, not `status`.
+   On `error: "authorization_pending"`, continue. On `error: "slow_down"`, use the
+   larger of your previous delay plus five seconds and the response's `interval`
+   for all subsequent requests. Honor `Retry-After` when present on HTTP 429.
+   On HTTP 503 with `error: "temporarily_unavailable"`, preserve this pairing and
+   the pending client authentication. Wait at least the larger of your poll interval
+   and `Retry-After` (five seconds), then retry the same device code. A temporary
+   failure does not extend `expires_in`; retry only within the original four-minute
+   window while the client authentication remains pending.
 6. On `status: "approved"`, pass the returned `callback_url` directly to the same client's
    `complete_authentication` tool using its exposed schema. Do not navigate to the
    loopback URL or exchange the code yourself: the client owns the PKCE verifier.
