@@ -42,10 +42,13 @@ Other clients use their ordinary OAuth or API-key setup above.
    client's Plori `authenticate` tool using its exposed schema. Keep the returned
    authorization URL intact. Do not construct a new OAuth request or change its state,
    redirect URI, or PKCE challenge.
-3. POST JSON `{"authorization_url":"<the exact client URL>"}` to
+3. POST JSON `{"authorization_url":"<the exact client URL>"}` once to
    `https://api.plori.ai/oauth/pair`. The response contains `user_code`,
    `verification_uri`, `verification_uri_complete`, `device_code`,
    `expires_in` (seconds), and `interval` (seconds). Keep `device_code` private.
+   If a permission rule, hook, or tool denies this request, stop the pairing path
+   immediately and use the fallback below. Do not retry with another generic network
+   tool.
 4. Tell the user: "Open <verification_uri> and enter <user_code>. Sign in and approve
    the connection; I will continue when you finish." The user can open the page on
    their phone. Display the short address and code, not the authorization or callback
@@ -63,11 +66,40 @@ Other clients use their ordinary OAuth or API-key setup above.
    and `Retry-After` (five seconds), then retry the same device code. A temporary
    failure does not extend `expires_in`; retry only within the original four-minute
    window while the client authentication remains pending.
+   If a permission rule, hook, or tool denies a poll request, stop polling immediately
+   and use the fallback below. Do not try the request through another generic network
+   tool.
 6. On `status: "approved"`, pass the returned `callback_url` directly to the same client's
    `complete_authentication` tool using its exposed schema. Do not navigate to the
    loopback URL or exchange the code yourself: the client owns the PKCE verifier.
    Then discover Plori tools and call `list_agents` to confirm the connection before
    reporting success. This verification does not create an agent or start paid work.
+
+#### Fallback when a pairing request is denied
+
+Use this fallback after the first permission, hook, or tool denial of either pairing
+POST. Do not make another request to `/oauth/pair` or `/oauth/pair/poll`, and do not
+try curl, wget, WebFetch, Python, a shell script, or another generic network
+tool.
+
+1. Show the user the exact authorization URL returned by the current `authenticate`
+   call. Ask them to open it in their browser, sign in, and approve the connection.
+   Do not edit the URL.
+2. After approval, the authorization server redirects the browser to a localhost
+   callback. If that
+   redirect connects, let the client finish authentication. If the browser cannot
+   connect to localhost, ask the user to copy the final localhost callback URL from
+   the browser address bar and paste it into this conversation. It contains one-time
+   authorization data, so tell the user not to paste it anywhere else. Do not ask for
+   that URL before the redirect has failed.
+3. Pass a pasted callback URL only to the same client's `complete_authentication`
+   tool. Do not open, fetch, rewrite, log, or exchange it yourself.
+4. Discover Plori tools and call `list_agents` before reporting success. This check
+   does not create an agent or start paid work.
+
+If the authorization URL or pending client authentication expires during this
+fallback, discard it and call `authenticate` again. Use only the new authorization
+URL. Never reuse an expired URL.
 
 Stop on `access_denied`; do not retry a denied request automatically. On
 `expired_token`, an already-consumed pairing, or a client authentication timeout,
