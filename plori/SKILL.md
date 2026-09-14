@@ -15,6 +15,9 @@ work, and read their replies programmatically.
 
 ## Connect
 
+If this client already lists Plori tools and `list_agents` answers, the connection is
+complete. Skip the rest of this section.
+
 MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/mcp`.
 
 - OAuth 2.1: compliant MCP clients connect with no hand-copied key. An unauthenticated
@@ -32,6 +35,12 @@ Installing a skill or plugin is optional. Use this flow only in interactive Clau
 when its Plori MCP client exposes both `authenticate` and `complete_authentication`.
 Other clients use their ordinary OAuth or API-key setup above.
 
+If this Claude Code build does not expose both `authenticate` and
+`complete_authentication`, use `/mcp` instead. Pick plori, choose Authenticate, then
+sign in with the emailed code. If the browser cannot reach the localhost callback,
+Claude Code prompts for it directly in its own dialog, never in chat. Then verify with
+`list_agents`.
+
 1. Check the current MCP configuration and active tools. Reuse an existing Plori server
    at `https://api.plori.ai/mcp`; do not add duplicate entries or replace a different
    server with the same name. If missing, configure it once with
@@ -41,7 +50,8 @@ Other clients use their ordinary OAuth or API-key setup above.
    the user to type `/reload-plugins` in this Claude Code conversation, then resume
    these steps in the same session. This also refreshes MCP configuration when no
    plugins are installed. It is a user command; do not try to invoke it through the
-   Skill tool. Confirm the authentication tools are available before proceeding.
+   Skill tool. Confirm the authentication tools are available before proceeding. If they
+   are still missing, use `/mcp` instead (above).
 2. If Plori tools already work, the connection is complete. Otherwise, call the
    client's Plori `authenticate` tool using its exposed schema. Keep the returned
    authorization URL intact. Do not construct a new OAuth request or change its state,
@@ -117,6 +127,12 @@ Code process and the two authentication tools are available. A separate hosted
 Claude.ai connector or Agent SDK session needs its own supported authentication flow.
 URLs can still appear in client tool results; do not promise to hide tool transcripts.
 
+#### Switch accounts or sign out
+
+To connect a different Plori account or sign out, use `/mcp`. Pick plori, choose Clear
+authentication, then Authenticate again with the new account's email code.
+`claude mcp remove` does not clear the stored token.
+
 ### CLI and REST
 
 CLI (recommended from a terminal): install with
@@ -153,6 +169,17 @@ to poll instead of holding the call open (see "Run agents in the background"
 below). Use `max_turn_tokens` to cap the turn. `cancel_run` requests
 cancellation, and `list_runs` lists recent runs. Default task outputs go to the
 agent's persistent `/workspace`. Use `TMPDIR` only for temporary files.
+
+Persistence: between sessions on the same agent, the disk under `/workspace`
+persists: installed tools, cloned repos, and files. The account's memory of the agent
+persists too, but the conversation itself does not. A new session re-reads whatever the
+previous one did not write to `/workspace`. Ask the agent to write findings there when
+a later session will need them. Reuse the returned `session_id` on a follow-up call
+that needs the same context.
+
+File references: a reply can reference a file by an agent-local path such as
+`/.plori/files/reports/a.md`. An MCP client cannot open that path directly. Ask the
+agent for the content inline, or for a hosted URL, when you need the file.
 
 Human input: `awaiting_input` can mean an approval or a question. Show the pending
 request to the human and use `answer_pending_input` for their answer. Never approve
@@ -195,10 +222,14 @@ A workflow's steps are built by an agent; these tools manage and run the result.
 A run can outlast the call that started it. Pick the option below that fits your
 client, instead of holding a call open for a job that takes minutes.
 
-- **Claude Code**: a tool call running past about two minutes becomes a background
-  task in the client. A long `invoke_agent` or `get_run_result` call then does not
-  block the rest of the conversation. To watch every run on the account instead, use
-  `Monitor` on `wss://api.plori.ai/v1/events` with the WebSocket protocols
+- **Claude Code**: hold each `get_run_result` call to about 100 seconds
+  (`wait_seconds: 100`). This client may background a call running past about two
+  minutes. Do not rely on the background task's result arriving as a notification. A
+  backgrounded hold can be lost. Keep at most one held call per run in flight. Between
+  calls, poll with `wait=false` on a short cadence. Read `tool_progress`
+  (`completed_count`, `last_completed_at`) and `elapsed_seconds` on the returned
+  result to judge progress. To watch every run on the account instead, use `Monitor`
+  on `wss://api.plori.ai/v1/events` with the WebSocket protocols
   `["plori", "plori.bearer.<API key>"]`. Running `plori watch` in a background shell
   works too.
 - **Codex**: set `tool_timeout_sec` on the plori server entry in `config.toml` to at
@@ -262,6 +293,19 @@ report the run's outcome as an exit code:
 Running an agent spends credits; check `get_credits` before invoking. Agent count and
 model tier follow the account's plan. Every call is scoped to the account that owns the
 credential; there is no cross-account access.
+
+### What to expect
+
+Cost and duration scale with what a turn does, not with its length alone. Three runs
+measured on 2026-09-13 on one agent:
+
+- A read-only account inventory (45 tool calls): about $0.14, 5 minutes.
+- A planning turn that read 13 web pages and one ads API (67 calls): about $1.39,
+  9 minutes.
+- A build turn (110 calls): about $0.58, 30 minutes.
+
+Every model call on the agent is billed. `max_turn_tokens` and `max_turn_seconds`
+cap a turn's tokens and wall time.
 
 ## More
 
