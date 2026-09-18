@@ -155,7 +155,9 @@ Full authentication instructions: https://plori.ai/auth.md
 
 Account and agents: `list_agents`, `get_agent`, `create_agent`
 (name; the Plori Router chooses the model per task), `delete_agent`, `get_credits`,
-`get_usage`, `get_disk`.
+`get_usage`, `get_disk`, `empty_trash` (permanently empties an agent's trash,
+freeing the disk a deleted file was still counting against; only works while that
+agent's pod is asleep).
 
 Runs: `invoke_agent` sends a message and holds your call open until the run
 finishes, pauses for input, or the hold ends. The hold is about 25 seconds for a
@@ -189,13 +191,18 @@ on the human's behalf just to unblock a run. After an answer, follow the exact
 A historical run can retain `awaiting_input` after its input has been answered.
 `list_pending_inputs` returns the current queue. A row with `consent_tool`
 represents an outward write: `always_allow=true` grants standing consent for that
-tool. Set it only when the human explicitly asks to stop being prompted.
+tool. Set it only when the human explicitly asks to stop being prompted. On a
+connection write, `scope="thread"` is the narrower answer: it allows the rest of that
+conversation's calls with the same method to the same host, expires after 24 hours, and
+cannot be combined with `always_allow`.
 
 MCP clients that negotiate the Tasks extension can receive a task handle and
-subscribe to its status. Other clients use the tools above; when elicitation is
-supported, an open waiting call can present an input request. Once a call returns,
-continued polling or an active subscription is required to observe later changes.
-MCP support alone does not mean the client can wake an idle model.
+subscribe to its status. Every other client gets the inline `awaiting_input`
+result described above for a paused run, even one that advertises the
+elicitation capability: no client is yet verified to render the native
+input-request card it would otherwise offer. Once a call returns, continued
+polling or an active subscription is required to observe later changes. MCP
+support alone does not mean the client can wake an idle model.
 
 Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
 fire_at) invokes the agent later as an ordinary run.
