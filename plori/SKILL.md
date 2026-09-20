@@ -164,13 +164,15 @@ finishes, pauses for input, or the hold ends. The hold is about 25 seconds for a
 client the server does not recognize, and longer for Claude Code and Codex. Pass
 `wait_seconds` to set it yourself, up to 1800. A result that is still running
 carries `run_id` and `poll_after_seconds`, the suggested delay before you check
-again. It also carries `elapsed_seconds` and, once tool-progress telemetry
-exists, `last_tool_step`. Keep calling `get_run_result` with `wait=true` until
-the run completes or needs human input. Pass `wait=false` to invoke when you plan
-to poll instead of holding the call open (see "Run agents in the background"
-below). Use `max_turn_tokens` to cap the turn. `cancel_run` requests
-cancellation, and `list_runs` lists recent runs. Default task outputs go to the
-agent's persistent `/workspace`. Use `TMPDIR` only for temporary files.
+again. It also carries `elapsed_seconds` and, once the run records them,
+`last_worklog` (the agent's own most recent note), `last_tool_step` ("running
+<tool>", or "completed <tool>" between calls) and `last_activity_at`. Keep calling
+`get_run_result` with `wait=true` until the run completes or needs human input.
+Pass `wait=false` to invoke when you plan to poll instead of holding the call
+open (see "Run agents in the background" below). Use `max_turn_tokens` to cap
+the turn. `cancel_run` requests cancellation, and `list_runs` lists recent
+runs. Default task outputs go to the agent's persistent `/workspace`. Use
+`TMPDIR` only for temporary files.
 
 Persistence: between sessions on the same agent, the disk under `/workspace`
 persists: installed tools, cloned repos, and files. The account's memory of the agent
@@ -297,9 +299,12 @@ report the run's outcome as an exit code:
 
 ## Costs and limits
 
-Running an agent spends credits; check `get_credits` before invoking. Agent count and
-model tier follow the account's plan. Every call is scoped to the account that owns the
-credential; there is no cross-account access.
+Running an agent spends credits; check `get_credits` before invoking. The account's
+plan sets its included monthly credits and its disk. It also sets the agent count, the
+runs in flight at once, the active workflows, and the length of one run. Over the
+in-flight run cap, `invoke_agent` returns 429. The plan does not set the model: the
+Plori Router picks it, the same way on every plan. Every call is scoped to the account
+that owns the credential; there is no cross-account access.
 
 ### What to expect
 
