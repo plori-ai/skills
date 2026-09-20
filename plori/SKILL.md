@@ -316,8 +316,9 @@ measured on 2026-09-13 on one agent:
   9 minutes.
 - A build turn (110 calls): about $0.58, 30 minutes.
 
-Every model call on the agent is billed. `max_turn_tokens` and `max_turn_seconds`
-cap a turn's tokens and wall time.
+Plori bills model usage, but automatically refunds charges when a platform fault stops
+the run, subject to a per-account rolling 24-hour limit. `max_turn_tokens` and
+`max_turn_seconds` cap a turn's tokens and wall time.
 
 ## More
 
