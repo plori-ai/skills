@@ -1,0 +1,4 @@
+interface:
+  display_name: "Root cause debugging"
+  short_description: "Diagnose bugs beyond symptoms and design durable fixes"
+  default_prompt: "Use $root-cause-debugging to trace this bug to its root cause, ask three closing why questions, compare current best practices, and propose a durable fix with evidence."
