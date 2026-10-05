@@ -221,8 +221,8 @@ Workflows: `list_workflows` (optional agent_id UUID, or "none" for unassigned),
 values), `edit_workflow` (workflow_id + base_version + constrained ops; creates a draft
 version under CAS and does not activate it),
 `create_workflow` (name, optional description/trigger_kind/cron_expr),
-`run_workflow` (runs a workflow now: a real execution billed like any run,
-returning the execution, terminal or still `running`), `list_workflow_executions`
+`run_workflow` (runs an active workflow, using the version the owner activated; for
+a workflow that is not active, returns a link where the owner runs it in the web app), `list_workflow_executions`
 (workflow_id; recent execution history), and `get_workflow_execution` to poll one and read
 its full per-step input/output payloads.
 A workflow's steps are built by an agent; these tools manage and run the result.
