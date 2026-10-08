@@ -40,7 +40,7 @@ npx skills add plori-ai/skills --skill subagent-coordination
 | Skill | What it teaches |
 | --- | --- |
 | [`plori`](./plori/SKILL.md) | Connect to plori over MCP, the `@plori/cli` command, or REST, authenticate (OAuth 2.1 or API key), create agents, invoke them and read replies, answer human-in-the-loop requests, schedule deferred runs, build and run workflows |
-| [`subagent-coordination`](./subagent-coordination/SKILL.md) | Run a multi-part coding task as a coordinator: plan, split the work into units that own separate files, brief up to five workers (native subagents plus tasks in the other local coding CLI), review each result before you accept it, and ship one PR |
+| [`subagent-coordination`](./subagent-coordination/SKILL.md) | Run a multi-part coding task as a coordinator: plan, split the work into units that own separate files, brief up to five workers (native subagents plus tasks in the other local coding CLI, with a wrapper that lets you message a running Codex worker), review each result before you accept it, and ship one PR |
 | [`root-cause-debugging`](./root-cause-debugging/SKILL.md) | Find the root cause of an incident or a recurring bug: build an evidence timeline, answer three causal questions, check current upstream guidance, and design a fix for the mechanism, not the symptom |
 | [`record-live-demo`](./record-live-demo/SKILL.md) | Record a real terminal, browser, or desktop product demo, then verify it and make an H.264 MP4 for delivery, with trim and speed helpers |
 

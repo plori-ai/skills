@@ -120,8 +120,11 @@ equal.
 ## 3. Local tasks in the other harness
 
 Use the two non-native slots for an independent implementation, investigation, or review when
-it helps the work: Claude Code drives local `codex exec`, and Codex drives local `claude -p`.
-Read [references/local-cli-tasks.md](references/local-cli-tasks.md) before launching. Check the
+it helps the work: Claude Code drives local Codex, and Codex drives local `claude -p`.
+Read [references/local-cli-tasks.md](references/local-cli-tasks.md) before launching. A Claude
+Code coordinator launches Codex through [scripts/codex-steer.mjs](scripts/codex-steer.mjs)
+when it can, so it can message, redirect, or interrupt a running Codex worker as it would a
+native subagent; plain `codex exec` takes no messages until it exits. Check the
 executable, its flags, model access, and existing authentication without printing
 credentials. If it is unavailable, keep the unit queued or use a free native slot; do not
 install software, change credentials, or exceed the native limit to compensate.
@@ -319,7 +322,9 @@ fix. A familiar symptom is a hypothesis, not a conclusion.
   and no active supervision; a promise to check later is not a timer.
 - **At 15 minutes of silence, inspect.** Native worker: its status, recent messages, and
   current tool work; ask for a progress or blocker report if unclear. CLI worker: the process, recent stdout and stderr,
-  child processes, and any pending test or permission wait. Log what you observed.
+  child processes, and any pending test or permission wait; for a steerable Codex worker also
+  `state.json` (`lastError` shows a provider that keeps reconnecting), and ask for a report
+  with `send` if unclear. Log what you observed.
 - **Intervene on a problem.** Fix an authorized dependency or permission setup, correct the
   brief, or interrupt a stuck operation. If the worker cannot recover, keep its artifacts and
   take over or reassign the unit after confirming the old work has stopped. Handle an exited

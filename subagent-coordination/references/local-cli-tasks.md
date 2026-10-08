@@ -24,6 +24,74 @@ included, so earlier evidence is kept.
 
 ## Claude Code coordinator -> local Codex worker
 
+### Steerable launch (preferred)
+
+`codex exec` reads its brief once and cannot take messages while it runs. Launch Codex
+workers through this skill's `scripts/codex-steer.mjs` instead: it drives `codex app-server`
+over stdio, so the coordinator can message a running worker the way it messages a native
+subagent. It needs Node 18+ and a Codex CLI whose `app-server` has `turn/steer` (check with
+`codex app-server --help`). If either is missing, use the `codex exec` launch below.
+
+```sh
+steer="<this skill's directory>/scripts/codex-steer.mjs"
+node "$steer" run --cwd "$task_worktree" --out "$task_output" --model "$task_model" \
+  --sandbox workspace-write < "$task_brief" > "$task_output/wrapper.log" 2>&1
+```
+
+Options: `--sandbox read-only|workspace-write|danger-full-access` (default `workspace-write`),
+`--approval` (default `never`; approval requests that still arrive are declined, and the
+worker reports the blocker), `--effort low|medium|high`, `--linger SECONDS` (stay alive that
+long after the last turn to accept a follow-up), `--resume THREAD_ID`, `--codex PATH`, and
+`-c key=value` passed through to Codex. The sandbox rules below apply unchanged.
+
+The wrapper writes into `$task_output`: `pid` and `exit` (same meaning as in the detached
+launch, so the monitors below work as written), `state.json` (thread ID, active turn,
+`status` = `running`, `idle` or `exited`, `lastActivityAt`, `lastError`), `report.md` (final
+message of the latest turn) and `turns/N.md` (each turn's final message), `events.jsonl`
+(app-server notifications without streaming deltas), `steer.log`, `codex-stderr.log`, and
+`thread_id`. Exit codes: 0 last turn completed, 1 failed, 2 interrupted or stopped, 3 startup
+or protocol error.
+
+Message the running worker:
+
+```sh
+node "$steer" send "$task_output" "Interface decided: use FooConfig, not a dict."
+node "$steer" send "$task_output" - < "$task_output/delta.md"      # longer message
+node "$steer" send "$task_output" --interrupt "Stop: X is wrong. Do Y instead."
+node "$steer" interrupt "$task_output"
+node "$steer" status "$task_output"
+```
+
+`send` prints one JSON line and waits up to `--wait` seconds (default 30) for delivery:
+
+- `steered`: added to the running turn. The model sees it at its next step, after the current
+  model response or tool call returns, without losing work in progress. A long test command
+  delays it until the command ends; use `--interrupt` when that is too late.
+- `queued`: the turn could not take input (it was ending, or is a review or compact turn), so
+  the message starts the next turn in the same thread as soon as this one finishes.
+- `started`: the worker was idle (lingering) and the message started a new turn.
+- `undelivered`: the worker is not running. The message stays in `inbox/`. Use a follow-up
+  launch instead (below).
+
+`--interrupt` stops the current turn first, then delivers the message as the next turn in the
+same thread, so the worker keeps its context and its changes. The wrapper exits once the last
+turn ends and no message is waiting (after `--linger`, if set). Do not send a message to the
+same output directory from two places at once without reading each result.
+
+To follow up after the worker has exited, resume its thread in a new output directory instead
+of starting a fresh `codex exec`. The worker keeps its full context, so the brief only needs
+the delta:
+
+```sh
+node "$steer" run --cwd "$task_worktree" --out "$task_output_2" --model "$task_model" \
+  --resume "$(cat "$task_output/thread_id")" < "$delta_brief" > "$task_output_2/wrapper.log" 2>&1
+```
+
+For a detached launch, start the same `run` command with `setsid ... < /dev/null &` and the
+brief redirected from its file; the wrapper writes `pid` and `exit` itself.
+
+### `codex exec` launch (fallback)
+
 For an editing task:
 
 ```sh
@@ -81,11 +149,16 @@ done
 
 Working with Codex workers:
 
-- A running `codex exec` worker cannot receive messages; the native messaging tool reaches
-  native workers only. Put every decision and constraint in the brief before launch. To
-  correct a worker, wait for it to exit and launch a new `codex exec` in the same directory
-  with a short delta brief that names the worker's own changes (its files in the shared
-  checkout, or its commit), the coordinator's decisions, and a new output directory.
+- A worker launched with `codex-steer.mjs` takes messages through `send`; the native
+  messaging tool reaches native workers only. Use `send` for decisions made after launch, a
+  correction, a new constraint from another unit, or a request for a progress report. Each
+  message must make sense on its own; log each one in the coordination log. Use
+  `--interrupt` when the worker is on a wrong path, not for routine additions.
+- A running `codex exec` worker cannot receive messages. Put every decision and constraint
+  in the brief before launch. To correct it, wait for it to exit and launch a new
+  `codex exec` in the same directory with a short delta brief that names the worker's own
+  changes (its files in the shared checkout, or its commit), the coordinator's decisions, and
+  a new output directory.
 - Keep one shared brief tail (hard rules, report format, trailers) in a file and append it to
   every unit's brief, so the rules are identical across units.
 - Codex reports are compact and cite `file:line`. Still read the diff: a report can be
@@ -123,8 +196,11 @@ Keep the session ID and final result from the stream, and do not pass
   inspection time, and wake even if the CLI prints nothing. At the deadline inspect the
   process, logs, child processes, and permission waits, and intervene if needed. A healthy
   quiet operation gets another timed check, not termination.
-- For a follow-up, wait for the exit and reserve a slot again. Codex: launch a new
-  `codex exec` in the same directory with a delta brief and a new output directory. Claude
+- For a follow-up, wait for the exit and reserve a slot again. Codex: with `codex-steer.mjs`,
+  `run --resume` the saved thread ID with a delta brief and a new output directory; with
+  `codex exec`, launch a new `codex exec` in the same directory with a delta brief and a new
+  output directory. A message to a running steerable worker is not a follow-up launch and
+  needs no new slot. Claude
   Code: target the saved session with `claude -p --resume SESSION_ID`, and pass the model,
   permissions, output capture, and stdin brief again. Never use `--last` or `--continue` to
   pick among concurrent tasks.
