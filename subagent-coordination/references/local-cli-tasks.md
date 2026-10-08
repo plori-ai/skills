@@ -24,6 +24,94 @@ included, so earlier evidence is kept.
 
 ## Claude Code coordinator -> local Codex worker
 
+### Steerable launch (preferred)
+
+`codex exec` reads its brief once, takes no messages while it runs, and starts a full Codex
+process per worker. Launch Codex workers through this skill's `scripts/codex-steer.py`
+instead. It runs every worker as a thread in one shared `codex app-server`, owned by one small
+daemon per pool, and lets the coordinator message a running worker the way it messages a
+native subagent. Measured with codex-cli 0.161: ten concurrent workers used about 200 MB in
+total (daemon about 23 MB, app-server about 180 MB) instead of about 260 MB per worker, and
+the idle daemon uses no CPU. It needs Python 3.8+ (standard library only) and a Codex CLI whose
+`app-server` has `turn/steer`. If either is missing, use the `codex exec` launch below.
+
+```sh
+steer="<this skill's directory>/scripts/codex-steer.py"
+python3 "$steer" run --cwd "$task_worktree" --out "$task_output" --model "$task_model" \
+  --sandbox workspace-write < "$task_brief"
+```
+
+`run` returns as soon as the worker's first turn has started and prints the task state as one
+JSON line. The first `run` starts the pool's daemon; the daemon starts the app-server, and both
+exit after `--idle-exit` seconds (default 300) with no live task. No per-worker process is left
+behind, so there is no PID to track: the task is finished when `$task_output/exit` exists.
+
+Options: `--sandbox read-only|workspace-write|danger-full-access` (default `workspace-write`),
+`--approval` (default `never`; approval requests that still arrive are declined, and the
+worker reports the blocker), `--effort low|medium|high`, `--linger SECONDS` (keep the task
+open that long after its last turn to accept a follow-up), `--resume THREAD_ID`, `-c
+key=value` (Codex config for this worker's thread only), and `--wait` (block until the task
+ends and exit with its code). `--codex PATH` and `--daemon-config key=value` apply to the
+shared app-server and take effect only when that `run` starts the daemon. `--pool NAME` (or
+`CODEX_STEER_POOL`) selects a separate daemon, for example one per `CODEX_HOME`. The sandbox
+rules below apply unchanged.
+
+Files in `$task_output`: `state.json` (thread ID, active turn, `status` = `running`, `idle` or
+`exited`, `lastActivityAt`, `lastError`), `report.md` (final message of the latest turn) and
+`turns/N.md` (each turn's final message), `events.jsonl` (this thread's app-server
+notifications without streaming deltas), `steer.log`, `thread_id`, and `exit` (`exit N` once
+the task has ended: 0 last turn completed, 1 failed, 2 interrupted or stopped, 3 startup or
+protocol error, including an app-server crash). The daemon's own log is under
+`${XDG_RUNTIME_DIR:-/tmp}/codex-steer-$UID/`.
+
+Wait for workers with one process for all of them, run as the harness's tracked background
+job; it prints one JSON line per task as each ends:
+
+```sh
+python3 "$steer" wait "$out_a" "$out_b" "$out_c"          # until all end; exit = worst code
+python3 "$steer" wait --any --timeout 900 "$out_a" "$out_b" # first to end, or 124 on timeout
+```
+
+Message a running worker:
+
+```sh
+python3 "$steer" send "$task_output" "Interface decided: use FooConfig, not a dict."
+python3 "$steer" send "$task_output" - < "$delta_file"          # longer message
+python3 "$steer" send "$task_output" --interrupt "Stop: X is wrong. Do Y instead."
+python3 "$steer" interrupt "$task_output"   # stop the current turn, keep the task
+python3 "$steer" stop "$task_output"        # stop the turn and end the task (exit 2)
+python3 "$steer" status "$task_output"      # or with no directory: every task in the pool
+```
+
+`send` prints one JSON line with the delivery result:
+
+- `steered`: added to the running turn. The model sees it at its next step, after the current
+  model response or tool call returns, without losing work in progress. A long test command
+  delays it until the command ends; use `--interrupt` when that is too late.
+- `queued`: the turn could not take input (it was ending, or is a review or compact turn), so
+  the message starts the next turn in the same thread as soon as this one finishes.
+- `started`: the task was idle (lingering) and the message started a new turn.
+- `undelivered`: the task has ended or its pool is not running. Use a follow-up launch.
+
+`--interrupt` stops the current turn first, then delivers the message as the next turn in the
+same thread, so the worker keeps its context and its changes. A task ends once its last turn
+ends and no message is waiting (after `--linger`, if set).
+
+To follow up after a task has ended, resume its thread in a new output directory instead of
+starting a fresh `codex exec`. The worker keeps its full context, so the brief only needs the
+delta:
+
+```sh
+python3 "$steer" run --cwd "$task_worktree" --out "$task_output_2" --model "$task_model" \
+  --resume "$(cat "$task_output/thread_id")" < "$delta_brief"
+```
+
+All workers in a pool share one app-server: if it crashes, every live task in the pool ends
+with exit 3 and `lastError` says so; the next `run` starts a new app-server, and each task can
+continue with `--resume`. `python3 "$steer" daemon stop` ends every task in the pool.
+
+### `codex exec` launch (fallback)
+
 For an editing task:
 
 ```sh
@@ -81,11 +169,16 @@ done
 
 Working with Codex workers:
 
-- A running `codex exec` worker cannot receive messages; the native messaging tool reaches
-  native workers only. Put every decision and constraint in the brief before launch. To
-  correct a worker, wait for it to exit and launch a new `codex exec` in the same directory
-  with a short delta brief that names the worker's own changes (its files in the shared
-  checkout, or its commit), the coordinator's decisions, and a new output directory.
+- A worker launched with `codex-steer.py` takes messages through `send`; the native
+  messaging tool reaches native workers only. Use `send` for decisions made after launch, a
+  correction, a new constraint from another unit, or a request for a progress report. Each
+  message must make sense on its own; log each one in the coordination log. Use
+  `--interrupt` when the worker is on a wrong path, not for routine additions.
+- A running `codex exec` worker cannot receive messages. Put every decision and constraint
+  in the brief before launch. To correct it, wait for it to exit and launch a new
+  `codex exec` in the same directory with a short delta brief that names the worker's own
+  changes (its files in the shared checkout, or its commit), the coordinator's decisions, and
+  a new output directory.
 - Keep one shared brief tail (hard rules, report format, trailers) in a file and append it to
   every unit's brief, so the rules are identical across units.
 - Codex reports are compact and cite `file:line`. Still read the diff: a report can be
@@ -123,8 +216,11 @@ Keep the session ID and final result from the stream, and do not pass
   inspection time, and wake even if the CLI prints nothing. At the deadline inspect the
   process, logs, child processes, and permission waits, and intervene if needed. A healthy
   quiet operation gets another timed check, not termination.
-- For a follow-up, wait for the exit and reserve a slot again. Codex: launch a new
-  `codex exec` in the same directory with a delta brief and a new output directory. Claude
+- For a follow-up, wait for the exit and reserve a slot again. Codex: with `codex-steer.py`,
+  `run --resume` the saved thread ID with a delta brief and a new output directory; with
+  `codex exec`, launch a new `codex exec` in the same directory with a delta brief and a new
+  output directory. A message to a running steerable worker is not a follow-up launch and
+  needs no new slot. Claude
   Code: target the saved session with `claude -p --resume SESSION_ID`, and pass the model,
   permissions, output capture, and stdin brief again. Never use `--last` or `--continue` to
   pick among concurrent tasks.

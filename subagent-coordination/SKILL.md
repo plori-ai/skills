@@ -120,8 +120,12 @@ equal.
 ## 3. Local tasks in the other harness
 
 Use the two non-native slots for an independent implementation, investigation, or review when
-it helps the work: Claude Code drives local `codex exec`, and Codex drives local `claude -p`.
-Read [references/local-cli-tasks.md](references/local-cli-tasks.md) before launching. Check the
+it helps the work: Claude Code drives local Codex, and Codex drives local `claude -p`.
+Read [references/local-cli-tasks.md](references/local-cli-tasks.md) before launching. A Claude
+Code coordinator launches Codex through [scripts/codex-steer.py](scripts/codex-steer.py)
+when it can: all Codex workers then share one app-server process, and the coordinator can
+message, redirect, or interrupt a running Codex worker as it would a native subagent. Plain
+`codex exec` takes no messages until it exits and costs a full Codex process per worker. Check the
 executable, its flags, model access, and existing authentication without printing
 credentials. If it is unavailable, keep the unit queued or use a free native slot; do not
 install software, change credentials, or exceed the native limit to compensate.
@@ -319,7 +323,9 @@ fix. A familiar symptom is a hypothesis, not a conclusion.
   and no active supervision; a promise to check later is not a timer.
 - **At 15 minutes of silence, inspect.** Native worker: its status, recent messages, and
   current tool work; ask for a progress or blocker report if unclear. CLI worker: the process, recent stdout and stderr,
-  child processes, and any pending test or permission wait. Log what you observed.
+  child processes, and any pending test or permission wait; for a steerable Codex worker also
+  `state.json` (`lastError` shows a provider that keeps reconnecting), and ask for a report
+  with `send` if unclear. Log what you observed.
 - **Intervene on a problem.** Fix an authorized dependency or permission setup, correct the
   brief, or interrupt a stuck operation. If the worker cannot recover, keep its artifacts and
   take over or reassign the unit after confirming the old work has stopped. Handle an exited
@@ -368,7 +374,8 @@ and restarting local services. Each costs a rerun.
 ### Stuck tasks and orphans
 
 - **Sweep at every check-in and before every final report:** background tasks and monitors,
-  detached CLI processes (their PID files), test pods, port forwards, and worktrees of finished
+  detached CLI processes (their PID files), live `codex-steer.py` tasks (`status` with no
+  directory lists the pool), test pods, port forwards, and worktrees of finished
   units. Name the unit that still needs each one; stop or remove anything without an owner.
 - **A task that outlived its purpose is an orphan:** a wait loop whose condition can no longer
   come true, a monitor for an exited process, a poll for a closed PR, a port forward for a
