@@ -45,6 +45,10 @@ python3 "$steer" run --cwd "$task_worktree" --out "$task_output" --model "$task_
 JSON line. The first `run` starts the pool's daemon; the daemon starts the app-server, and both
 exit after `--idle-exit` seconds (default 300) with no live task. No per-worker process is left
 behind, so there is no PID to track: the task is finished when `$task_output/exit` exists.
+The daemon is detached from the shell that ran `run`, so a harness limit on background shell
+commands does not end the worker. The daemon's socket lives under
+`${XDG_RUNTIME_DIR:-/tmp}`, and a reboot ends every task: keep `$task_output` on a path that
+survives a reboot, and continue an ended task with `--resume`.
 
 Options: `--sandbox read-only|workspace-write|danger-full-access` (default `workspace-write`),
 `--approval` (default `never`; approval requests that still arrive are declined, and the
@@ -62,10 +66,15 @@ Files in `$task_output`: `state.json` (thread ID, active turn, `status` = `runni
 notifications without streaming deltas), `steer.log`, `thread_id`, and `exit` (`exit N` once
 the task has ended: 0 last turn completed, 1 failed, 2 interrupted or stopped, 3 startup or
 protocol error, including an app-server crash). The daemon's own log is under
-`${XDG_RUNTIME_DIR:-/tmp}/codex-steer-$UID/`.
+`${XDG_RUNTIME_DIR:-/tmp}/codex-steer-$UID/`. Exit 0 means the last turn completed, not that
+the work succeeded: a worker whose every command failed (for example the sandbox error under
+"When the Codex sandbox cannot start") reports the error text as its answer and still exits
+0. Read `report.md` before accepting.
 
 Wait for workers with one process for all of them, run as the harness's tracked background
-job; it prints one JSON line per task as each ends:
+job or as a monitor command (one event per ended task; re-arm it on expiry while tasks are
+live); it prints one JSON line per task as each ends. For the 15-minute silence check, read
+`lastActivityAt` in each task's `state.json`:
 
 ```sh
 python3 "$steer" wait "$out_a" "$out_b" "$out_c"          # until all end; exit = worst code
@@ -133,7 +142,10 @@ reports "blocked" after about a minute with no changes. In that environment, and
 the coordinator's own session already runs without permission prompts (for example a
 bypass-permissions session), use `--sandbox danger-full-access` with `-a never`: the worker
 then has the same access the session's native subagents have. Otherwise keep the unit on a
-native worker. Do not use it to get past a restriction the coordinator itself is under.
+native worker. Do not use it to get past a restriction the coordinator itself is under. The
+same applies to the steerable launch: under `codex app-server`, `workspace-write` fails with
+the same error (verified with codex-cli 0.159.3), so pass `--sandbox danger-full-access` to
+`codex-steer.py run` in that environment.
 
 **Detached launch.** If the harness stops background shell commands before a worker can
 finish, launch detached with `setsid`, and write a PID file and an exit file:
