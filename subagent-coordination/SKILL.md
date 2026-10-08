@@ -37,7 +37,8 @@ entangled to brief or a worker stays stuck after one correction.
 - **Count ongoing work, not tool calls.** A task waiting on a tool, test, or permission still
   holds its slot. An idle native session with no running work does not, but resuming it needs
   a free slot. A CLI task holds its slot until its process and any background work it started
-  have exited.
+  have exited; a steerable Codex task holds it until its output directory has an `exit` file.
+  A message to a running steerable worker needs no new slot.
 - **Fill free slots, then one in, one out.** Dispatch independent units together within the
   limits. Free a slot only after confirming completion or termination; a progress message or a
   timeout is not completion.
@@ -324,7 +325,7 @@ fix. A familiar symptom is a hypothesis, not a conclusion.
 - **At 15 minutes of silence, inspect.** Native worker: its status, recent messages, and
   current tool work; ask for a progress or blocker report if unclear. CLI worker: the process, recent stdout and stderr,
   child processes, and any pending test or permission wait; for a steerable Codex worker also
-  `state.json` (`lastError` shows a provider that keeps reconnecting), and ask for a report
+  `state.json` (`lastActivityAt`; `lastError` shows a provider that keeps reconnecting), and ask for a report
   with `send` if unclear. Log what you observed.
 - **Intervene on a problem.** Fix an authorized dependency or permission setup, correct the
   brief, or interrupt a stuck operation. If the worker cannot recover, keep its artifacts and
@@ -392,7 +393,8 @@ and restarting local services. Each costs a rerun.
 
 ### Recovery and ownership
 
-- A watchdog **"stalled" notice is not proof of failure.** Inspect output and status first. Do
+- A watchdog **"stalled" notice is not proof of failure.** Inspect output and status first,
+  and ask a steerable Codex worker for a report with `send` if unclear. Do
   not launch a replacement while the original still runs, and never select "the latest
   session" when several run in parallel.
 - **Reuse a worker for follow-ups on its own work**; it keeps its context. Use a new worker or

@@ -16,7 +16,8 @@ turn (`turn/steer`), interrupt and redirect it, queue a follow-up turn, or resum
     codex-steer.py status [DIR]             # one task, or every task in the pool
     codex-steer.py daemon (status | stop)
 
-Every command takes --pool NAME (default "default", or $CODEX_STEER_POOL). The first `run`
+Every command takes --pool NAME, before or after the command name (default "default", or
+$CODEX_STEER_POOL). The first `run`
 starts the pool's daemon; it exits after --idle-exit seconds (default 300) with no task.
 Flags for the shared app-server (--codex PATH, and `daemon start -c key=value` or
 `run --daemon-config key=value`) apply only when that command starts the daemon. `run -c`
@@ -50,7 +51,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 DELIVERED = ("steered", "queued", "started")
 
 
@@ -630,8 +631,10 @@ def main():
     import argparse
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # --pool is accepted before the command name too; a value after it wins.
+    ap.add_argument("--pool", dest="top_pool")
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--pool", default=os.environ.get("CODEX_STEER_POOL", "default"))
+    common.add_argument("--pool")
     sub = ap.add_subparsers(dest="cmd", required=True)
     add = lambda name: sub.add_parser(name, parents=[common])
 
@@ -675,6 +678,7 @@ def main():
     d.add_argument("-c", "--config", action="append", default=[])
 
     args = ap.parse_args()
+    args.pool = args.pool or args.top_pool or os.environ.get("CODEX_STEER_POOL", "default")
     paths = pool_paths(args.pool)
 
     if args.cmd == "daemon":
