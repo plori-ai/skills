@@ -122,9 +122,10 @@ equal.
 Use the two non-native slots for an independent implementation, investigation, or review when
 it helps the work: Claude Code drives local Codex, and Codex drives local `claude -p`.
 Read [references/local-cli-tasks.md](references/local-cli-tasks.md) before launching. A Claude
-Code coordinator launches Codex through [scripts/codex-steer.mjs](scripts/codex-steer.mjs)
-when it can, so it can message, redirect, or interrupt a running Codex worker as it would a
-native subagent; plain `codex exec` takes no messages until it exits. Check the
+Code coordinator launches Codex through [scripts/codex-steer.py](scripts/codex-steer.py)
+when it can: all Codex workers then share one app-server process, and the coordinator can
+message, redirect, or interrupt a running Codex worker as it would a native subagent. Plain
+`codex exec` takes no messages until it exits and costs a full Codex process per worker. Check the
 executable, its flags, model access, and existing authentication without printing
 credentials. If it is unavailable, keep the unit queued or use a free native slot; do not
 install software, change credentials, or exceed the native limit to compensate.
@@ -373,7 +374,8 @@ and restarting local services. Each costs a rerun.
 ### Stuck tasks and orphans
 
 - **Sweep at every check-in and before every final report:** background tasks and monitors,
-  detached CLI processes (their PID files), test pods, port forwards, and worktrees of finished
+  detached CLI processes (their PID files), live `codex-steer.py` tasks (`status` with no
+  directory lists the pool), test pods, port forwards, and worktrees of finished
   units. Name the unit that still needs each one; stop or remove anything without an owner.
 - **A task that outlived its purpose is an orphan:** a wait loop whose condition can no longer
   come true, a monitor for an exited process, a poll for a closed PR, a port forward for a

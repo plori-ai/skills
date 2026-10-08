@@ -26,69 +26,89 @@ included, so earlier evidence is kept.
 
 ### Steerable launch (preferred)
 
-`codex exec` reads its brief once and cannot take messages while it runs. Launch Codex
-workers through this skill's `scripts/codex-steer.mjs` instead: it drives `codex app-server`
-over stdio, so the coordinator can message a running worker the way it messages a native
-subagent. It needs Node 18+ and a Codex CLI whose `app-server` has `turn/steer` (check with
-`codex app-server --help`). If either is missing, use the `codex exec` launch below.
+`codex exec` reads its brief once, takes no messages while it runs, and starts a full Codex
+process per worker. Launch Codex workers through this skill's `scripts/codex-steer.py`
+instead. It runs every worker as a thread in one shared `codex app-server`, owned by one small
+daemon per pool, and lets the coordinator message a running worker the way it messages a
+native subagent. Measured with codex-cli 0.161: ten concurrent workers used about 200 MB in
+total (daemon about 23 MB, app-server about 180 MB) instead of about 260 MB per worker, and
+the idle daemon uses no CPU. It needs Python 3.8+ (standard library only) and a Codex CLI whose
+`app-server` has `turn/steer`. If either is missing, use the `codex exec` launch below.
 
 ```sh
-steer="<this skill's directory>/scripts/codex-steer.mjs"
-node "$steer" run --cwd "$task_worktree" --out "$task_output" --model "$task_model" \
-  --sandbox workspace-write < "$task_brief" > "$task_output/wrapper.log" 2>&1
+steer="<this skill's directory>/scripts/codex-steer.py"
+python3 "$steer" run --cwd "$task_worktree" --out "$task_output" --model "$task_model" \
+  --sandbox workspace-write < "$task_brief"
 ```
+
+`run` returns as soon as the worker's first turn has started and prints the task state as one
+JSON line. The first `run` starts the pool's daemon; the daemon starts the app-server, and both
+exit after `--idle-exit` seconds (default 300) with no live task. No per-worker process is left
+behind, so there is no PID to track: the task is finished when `$task_output/exit` exists.
 
 Options: `--sandbox read-only|workspace-write|danger-full-access` (default `workspace-write`),
 `--approval` (default `never`; approval requests that still arrive are declined, and the
-worker reports the blocker), `--effort low|medium|high`, `--linger SECONDS` (stay alive that
-long after the last turn to accept a follow-up), `--resume THREAD_ID`, `--codex PATH`, and
-`-c key=value` passed through to Codex. The sandbox rules below apply unchanged.
+worker reports the blocker), `--effort low|medium|high`, `--linger SECONDS` (keep the task
+open that long after its last turn to accept a follow-up), `--resume THREAD_ID`, `-c
+key=value` (Codex config for this worker's thread only), and `--wait` (block until the task
+ends and exit with its code). `--codex PATH` and `--daemon-config key=value` apply to the
+shared app-server and take effect only when that `run` starts the daemon. `--pool NAME` (or
+`CODEX_STEER_POOL`) selects a separate daemon, for example one per `CODEX_HOME`. The sandbox
+rules below apply unchanged.
 
-The wrapper writes into `$task_output`: `pid` and `exit` (same meaning as in the detached
-launch, so the monitors below work as written), `state.json` (thread ID, active turn,
-`status` = `running`, `idle` or `exited`, `lastActivityAt`, `lastError`), `report.md` (final
-message of the latest turn) and `turns/N.md` (each turn's final message), `events.jsonl`
-(app-server notifications without streaming deltas), `steer.log`, `codex-stderr.log`, and
-`thread_id`. Exit codes: 0 last turn completed, 1 failed, 2 interrupted or stopped, 3 startup
-or protocol error.
+Files in `$task_output`: `state.json` (thread ID, active turn, `status` = `running`, `idle` or
+`exited`, `lastActivityAt`, `lastError`), `report.md` (final message of the latest turn) and
+`turns/N.md` (each turn's final message), `events.jsonl` (this thread's app-server
+notifications without streaming deltas), `steer.log`, `thread_id`, and `exit` (`exit N` once
+the task has ended: 0 last turn completed, 1 failed, 2 interrupted or stopped, 3 startup or
+protocol error, including an app-server crash). The daemon's own log is under
+`${XDG_RUNTIME_DIR:-/tmp}/codex-steer-$UID/`.
 
-Message the running worker:
+Wait for workers with one process for all of them, run as the harness's tracked background
+job; it prints one JSON line per task as each ends:
 
 ```sh
-node "$steer" send "$task_output" "Interface decided: use FooConfig, not a dict."
-node "$steer" send "$task_output" - < "$task_output/delta.md"      # longer message
-node "$steer" send "$task_output" --interrupt "Stop: X is wrong. Do Y instead."
-node "$steer" interrupt "$task_output"
-node "$steer" status "$task_output"
+python3 "$steer" wait "$out_a" "$out_b" "$out_c"          # until all end; exit = worst code
+python3 "$steer" wait --any --timeout 900 "$out_a" "$out_b" # first to end, or 124 on timeout
 ```
 
-`send` prints one JSON line and waits up to `--wait` seconds (default 30) for delivery:
+Message a running worker:
+
+```sh
+python3 "$steer" send "$task_output" "Interface decided: use FooConfig, not a dict."
+python3 "$steer" send "$task_output" - < "$delta_file"          # longer message
+python3 "$steer" send "$task_output" --interrupt "Stop: X is wrong. Do Y instead."
+python3 "$steer" interrupt "$task_output"   # stop the current turn, keep the task
+python3 "$steer" stop "$task_output"        # stop the turn and end the task (exit 2)
+python3 "$steer" status "$task_output"      # or with no directory: every task in the pool
+```
+
+`send` prints one JSON line with the delivery result:
 
 - `steered`: added to the running turn. The model sees it at its next step, after the current
   model response or tool call returns, without losing work in progress. A long test command
   delays it until the command ends; use `--interrupt` when that is too late.
 - `queued`: the turn could not take input (it was ending, or is a review or compact turn), so
   the message starts the next turn in the same thread as soon as this one finishes.
-- `started`: the worker was idle (lingering) and the message started a new turn.
-- `undelivered`: the worker is not running. The message stays in `inbox/`. Use a follow-up
-  launch instead (below).
+- `started`: the task was idle (lingering) and the message started a new turn.
+- `undelivered`: the task has ended or its pool is not running. Use a follow-up launch.
 
 `--interrupt` stops the current turn first, then delivers the message as the next turn in the
-same thread, so the worker keeps its context and its changes. The wrapper exits once the last
-turn ends and no message is waiting (after `--linger`, if set). Do not send a message to the
-same output directory from two places at once without reading each result.
+same thread, so the worker keeps its context and its changes. A task ends once its last turn
+ends and no message is waiting (after `--linger`, if set).
 
-To follow up after the worker has exited, resume its thread in a new output directory instead
-of starting a fresh `codex exec`. The worker keeps its full context, so the brief only needs
-the delta:
+To follow up after a task has ended, resume its thread in a new output directory instead of
+starting a fresh `codex exec`. The worker keeps its full context, so the brief only needs the
+delta:
 
 ```sh
-node "$steer" run --cwd "$task_worktree" --out "$task_output_2" --model "$task_model" \
-  --resume "$(cat "$task_output/thread_id")" < "$delta_brief" > "$task_output_2/wrapper.log" 2>&1
+python3 "$steer" run --cwd "$task_worktree" --out "$task_output_2" --model "$task_model" \
+  --resume "$(cat "$task_output/thread_id")" < "$delta_brief"
 ```
 
-For a detached launch, start the same `run` command with `setsid ... < /dev/null &` and the
-brief redirected from its file; the wrapper writes `pid` and `exit` itself.
+All workers in a pool share one app-server: if it crashes, every live task in the pool ends
+with exit 3 and `lastError` says so; the next `run` starts a new app-server, and each task can
+continue with `--resume`. `python3 "$steer" daemon stop` ends every task in the pool.
 
 ### `codex exec` launch (fallback)
 
@@ -149,7 +169,7 @@ done
 
 Working with Codex workers:
 
-- A worker launched with `codex-steer.mjs` takes messages through `send`; the native
+- A worker launched with `codex-steer.py` takes messages through `send`; the native
   messaging tool reaches native workers only. Use `send` for decisions made after launch, a
   correction, a new constraint from another unit, or a request for a progress report. Each
   message must make sense on its own; log each one in the coordination log. Use
@@ -196,7 +216,7 @@ Keep the session ID and final result from the stream, and do not pass
   inspection time, and wake even if the CLI prints nothing. At the deadline inspect the
   process, logs, child processes, and permission waits, and intervene if needed. A healthy
   quiet operation gets another timed check, not termination.
-- For a follow-up, wait for the exit and reserve a slot again. Codex: with `codex-steer.mjs`,
+- For a follow-up, wait for the exit and reserve a slot again. Codex: with `codex-steer.py`,
   `run --resume` the saved thread ID with a delta brief and a new output directory; with
   `codex exec`, launch a new `codex exec` in the same directory with a delta brief and a new
   output directory. A message to a running steerable worker is not a follow-up launch and
