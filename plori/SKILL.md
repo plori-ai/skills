@@ -61,9 +61,7 @@ Claude Code prompts for it directly in its own dialog, never in chat. Then verif
    `https://api.plori.ai/oauth/pair`. The response contains `user_code`,
    `verification_uri`, `verification_uri_complete`, `device_code`,
    `expires_in` (seconds), and `interval` (seconds). Keep `device_code` private.
-   If a permission rule, hook, or tool denies this request, stop the pairing path
-   immediately and use the fallback below. Do not retry with another generic network
-   tool.
+   If a permission rule, hook, or tool denies this request, stop and use the fallback below.
 4. Tell the user: "Open <verification_uri> and enter <user_code>. Sign in and approve
    the connection; I will continue when you finish." The user can open the page on
    their phone. Display the short address and code, not the authorization or callback
@@ -81,9 +79,7 @@ Claude Code prompts for it directly in its own dialog, never in chat. Then verif
    and `Retry-After` (five seconds), then retry the same device code. A temporary
    failure does not extend `expires_in`; retry only within the original four-minute
    window while the client authentication remains pending.
-   If a permission rule, hook, or tool denies a poll request, stop polling immediately
-   and use the fallback below. Do not try the request through another generic network
-   tool.
+   If a permission rule, hook, or tool denies a poll request, stop and use the fallback below.
 6. On `status: "approved"`, pass the returned `callback_url` directly to the same client's
    `complete_authentication` tool using its exposed schema. Do not navigate to the
    loopback URL or exchange the code yourself: the client owns the PKCE verifier.
@@ -190,9 +186,10 @@ run will need them. Reuse the returned `session_id` on a follow-up call that nee
 same context. A completed run alone does not prove that files are saved:
 `file_source.state` `ready` with no `save_failure` means they are saved.
 
-File references: a reply can reference a file by an agent-local path such as
-`/.plori/files/reports/a.md`. An MCP client cannot open that path directly. Ask the
-agent for the content inline, or for a hosted URL, when you need the file.
+File references: a completed run's `files` are URLs readable with the same bearer token
+as the tool call, and `read_workspace_file` reads any file of a saved revision (the
+Workspace's current one, a worker's, or a changeset's). A path inside the agent's
+environment such as `/workspace/reports/a.md` is not a URL; read it through one of those.
 
 Human input: a run started through this connector pauses before each action outside the
 agent's own environment (connected-account and MCP writes, outbound HTTP writes, git push,
@@ -202,20 +199,18 @@ request to the human. An MCP client cannot approve an action or grant `always_al
 `answer_pending_input` can deny a request or answer a question the agent asks. Each
 awaiting approval has an `approve_url`; give it to the human, who approves in the
 Plori web app. After an answer or an approval, follow the exact
-`continuation_run_id` returned by `get_run_result`. If `input_status` is
-`answered` but the successor is not yet available, retry the original run.
+`continuation_run_id` returned by `get_run_result`. `answer_pending_input` returns the
+continuation run's `run_id`, or `continuation_pending: true` while the paused run's files
+are still being saved; then poll `get_run_result` on the paused run until
+`continuation_run_id` is set, and poll that run.
 A historical run can retain `awaiting_input` after its input has been answered.
 `list_pending_inputs` returns the current queue. A row with `consent_tool`
 represents an outward write. Only the human can approve it or grant standing consent
 for it, in the Plori web app.
 
-MCP clients that negotiate the Tasks extension can receive a task handle and
-subscribe to its status. Every other client gets the inline `awaiting_input`
-result described above for a paused run, even one that advertises the
-elicitation capability: no client is yet verified to render the native
-input-request card it would otherwise offer. Once a call returns, continued
-polling or an active subscription is required to observe later changes. MCP
-support alone does not mean the client can wake an idle model.
+A paused run is returned inline with status `awaiting_input`. Clients that negotiate the
+MCP Tasks extension receive a task handle instead and can subscribe to its status. In both
+cases a call that has returned does not report later changes: poll, or keep a subscription.
 
 Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
 fire_at) schedules a later run. The result has `status: "awaiting_confirmation"` and a
@@ -244,11 +239,8 @@ accepted, submit the next worker again so it is compared with the new current fi
 Copy deletion, file writes to a copy, conflict resolution and retention pins stay in
 the REST API and the CLI.
 
-The workflow tools, `get_usage`, `get_disk`, `empty_trash` and
-`list_connections` are not MCP tools. The REST API and the CLI keep those
-operations. The old agent tools `create_agent`, `list_agents`, `get_agent`,
-`delete_agent` and `invoke_agent` are replaced by `create_workspace`,
-`list_workspaces` and `send_workspace_message`.
+Workflows, usage and disk reports, trash and connected accounts are not on the MCP
+server; the REST API and the CLI cover them.
 
 ### Workspace CLI commands
 
@@ -287,25 +279,20 @@ for the action's flags. These are CLI commands, not MCP tools. The command group
   prevents future assignments. `plori workspace delete WORKSPACE_ID --yes`
   requests destructive deletion. Use `--yes` only for an authorized action.
 
-Preserve existing execution and advisor budgets unless the user requests a change.
-Omit their optional fields to retain the configured defaults. In particular, an
-explicit zero advisor budget disables advisor completions. Workspace coordination
-does not change the defaults for existing legacy workflows.
-
-Reuse an idempotency key only for identical input. Group budgets are positive
-cache-weighted token limits. Admission reserves context capacity and output.
-Use the bounded single-worker example in https://plori.ai/docs/cli and size the group
-for concurrent workers. Token reservation is not a cost report.
+A task group's budget is a token limit its workers share, not a cost; `get_workspace_costs`
+reports cost. Omit the optional budget fields to keep the configured defaults; an explicit
+advisor budget of 0 disables advisor reviews. The single-worker example in
+https://plori.ai/docs/cli shows the sizes.
 
 ## Run agents in the background
 
 A run can outlast the call that started it. Pick the option below that fits your
 client, instead of holding a call open for a job that takes minutes.
 
-- **Claude Code**: hold each `get_run_result` call to about 100 seconds
-  (`wait_seconds: 100`). This client may background a call running past about two
-  minutes. Do not rely on the background task's result arriving as a notification. A
-  backgrounded hold can be lost. Keep at most one held call per run in flight. Between
+- **Claude Code**: the server can hold a call up to 30 minutes for Claude Code 2.1.212 or
+  later, but Claude Code moves a call that runs past about two minutes to the background
+  and can drop its result, so hold each `get_run_result` call to about 100 seconds
+  (`wait_seconds: 100`). Keep at most one held call per run in flight. Between
   calls, poll with `wait=false` on a short cadence. Read `tool_progress`
   (`completed_count`, `last_completed_at`) and `elapsed_seconds` on the returned
   result to judge progress. To watch every run on the account instead, use `Monitor`
