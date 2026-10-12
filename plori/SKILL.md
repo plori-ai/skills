@@ -1,40 +1,28 @@
 ---
 name: plori
-description: Create plori Workspaces (cloud project files with saved revisions) and send work to the AI agents that run in them from any MCP client, the plori CLI, or over REST. Covers authentication (OAuth 2.1 or API key), creating Workspaces, sending messages and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
+description: Run AI agents in plori Workspaces from an MCP client, the plori CLI or REST. Covers sign-in, Workspaces, tasks and replies, running several agents and completing their merge, approvals, and scheduled runs.
 ---
 
 # Using plori from an agent
 
-If you were asked to set up plori, do it by following the Connect section below: add the
-plori MCP server to the client you are running in, authenticate the account owner, and
-confirm the tools respond before reporting success.
+If you were asked to set up plori, follow Connect below: add the plori MCP server to this
+client, have the account owner sign in, and confirm the tools respond before you report
+success.
 
-plori (https://plori.ai) runs AI agents in cloud Workspaces. A Workspace holds the project's files
-with saved revisions, a main conversation and the run history. Its agents work on the files
-under `/workspace` with a shell and network access.
-
-You can run several workers in one Workspace at the same time. Each worker gets its own copy
-of the Workspace files, so workers do not change each other's files or the current files. To
-bring a worker's changes into the Workspace, submit them as a changeset, review the compared
-paths, and accept the changeset. Only an accepted changeset changes the Workspace's current
-files. A run starts on a pre-booted VM from a pool when one is free. The platform makes each
-worker's copy from a saved revision, so you do not upload or clone the files.
-
-You can create Workspaces, send work to their agents, and read the replies programmatically.
+Plori runs AI agents in cloud Workspaces. Several agents can work on one project at once, and
+Plori merges their changes back into the Workspace. A Workspace holds a project's files under
+`/workspace`, saved versions of those files, a main conversation and the run history.
 
 ## Connect
 
-If this client already lists Plori tools and `list_workspaces` answers, the connection is
-complete. Skip the rest of this section.
+If this client already lists Plori tools and `list_workspaces` answers, skip this section.
 
-MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/mcp`.
+MCP: Streamable HTTP at `https://api.plori.ai/mcp`.
 
-- OAuth 2.1: compliant MCP clients connect with no hand-copied key. An unauthenticated
-  request returns 401 with the discovery chain (RFC 9728 Protected Resource Metadata at
-  https://api.plori.ai/.well-known/oauth-protected-resource, then dynamic client
-  registration and authorization code + PKCE). The account owner signs in once with an
-  email one-time code.
-- API key: the account owner provisions a key at https://plori.ai and you send
+- OAuth 2.1: an unauthenticated request returns 401 with the discovery chain (RFC 9728
+  metadata at https://api.plori.ai/.well-known/oauth-protected-resource, dynamic client
+  registration, authorization code + PKCE). The account owner signs in with an email code.
+- API key: the account owner creates one at https://plori.ai. Send
   `Authorization: Bearer plori_sk_...`.
 
 ### Claude Code: connect from this conversation
@@ -140,256 +128,170 @@ authentication, then Authenticate again with the new account's email code.
 
 ### CLI and REST
 
-CLI (recommended from a terminal): install with
-`curl -fsSL https://plori.ai/install.sh | sh` (one static binary, no sudo and no Node; on
-Windows `irm https://plori.ai/install.ps1 | iex`), or `npm i -g @plori/cli`, or run it
-without installing via `npx -y @plori/cli`. That gives you the `plori` command for the
-same operations from your shell. The shell installer puts the binary in `~/.local/bin`
-and edits no shell rc file, so run `export PATH="$HOME/.local/bin:$PATH"` after it
-before you call `plori` (the Windows script sets the user PATH itself).
-`plori login` opens the browser for the same email-OTP
-OAuth flow; CI and other headless callers use `plori login --key plori_sk_...` or set
-`PLORI_API_KEY`. Output is human-readable on a terminal and a single JSON document when
-piped or with `--json`, so it composes in scripts. Commands are listed under "CLI
-commands" below.
+CLI: `curl -fsSL https://plori.ai/install.sh | sh` (Windows: `irm https://plori.ai/install.ps1 | iex`),
+`npm i -g @plori/cli`, or `npx -y @plori/cli`. The shell installer writes to
+`~/.local/bin` and edits no rc file, so run `export PATH="$HOME/.local/bin:$PATH"` first.
+`plori login` signs in through the browser; headless callers use
+`plori login --key plori_sk_...` or set `PLORI_API_KEY`. Piped output and `--json` give
+JSON.
 
-REST: the same operations at `https://api.plori.ai/v1` with the same bearer token.
-Full authentication instructions: https://plori.ai/auth.md
+REST: `https://api.plori.ai/v1` with the same bearer token. Detail: https://plori.ai/auth.md
 
 ## Tools
 
-The MCP server has 23 tools.
+The MCP server has 23 tools. Every call is scoped to the credential's account.
 
-Workspaces and account: `list_workspaces` (pass `workspace_id` to get one Workspace; the result
-has `storage_readiness` while its storage is starting), `create_workspace` (`name` and `idempotency_key`; the result has
-`id` and `default_manager_agent_id`. Unless you pass `default_manager_agent_id`, the call
-also creates a default agent that counts against the account's agent limit),
-`delete_workspace` (permanently deletes the Workspace with its files, revisions, copies and
-conversations), and `get_credits`.
+### Workspaces
 
-Runs: `send_workspace_message` (`workspace_id` and `message`) sends a message to the
-Workspace's main conversation, or to the conversation named by `session_id`, and holds your
-call open until the run finishes, pauses for input, or the hold ends. The default hold is
-25 seconds, 50 seconds for Codex, and up to 30 minutes for Claude Code 2.1.212 or later.
-A call without an MCP progressToken holds for at most 50 seconds. Pass `wait_seconds` to
-set the hold yourself, up to 1800; the 50-second limit still applies without a
-progressToken. The result has `agent_id` and `workspace_id`. Use that `agent_id` with
-`get_run_result`, `cancel_run`, `list_runs` and `list_pending_inputs`. A result that is
-still running carries `run_id` and `poll_after_seconds`, the suggested delay before you
-check again. It also carries `elapsed_seconds` and, once the run records them,
-`last_worklog` (the agent's own most recent note), `last_tool_step` ("running
-<tool>", or "completed <tool>" between calls) and `last_activity_at`. Keep calling
-`get_run_result` with `wait=true` until the run completes or needs human input.
-Pass `wait=false` to `send_workspace_message` when you plan to poll instead of holding the
-call open (see "Run agents in the background" below). Use `max_turn_tokens` to cap
-the turn. `cancel_run` requests cancellation, and `list_runs` lists recent
-runs. A new message is refused with 409 `conversation_busy` while a run in the same
-conversation executes. Default task outputs go to the Workspace files under
-`/workspace`. Use `TMPDIR` only for temporary files.
+- `list_workspaces`: pass `workspace_id` for one. `storage_readiness` is present while
+  its storage starts.
+- `create_workspace` (`name`, `idempotency_key`) returns `id` and
+  `default_manager_agent_id`. Without `default_manager_agent_id` it creates a default
+  agent, which counts against the agent limit. Names are not unique: reuse a Workspace.
+- `delete_workspace` permanently deletes its files, saved versions, copies and
+  conversations.
+- `get_credits` returns the balance. Check it before long work.
 
-Persistence: between runs in the same Workspace, only the files under `/workspace`
-persist, including cloned repositories. Software that a run installs outside `/workspace`
-does not continue to the next run. The same is true for processes that a run starts. Ask
-the agent to write findings under `/workspace` when a later run will need them. Reuse the
-returned `session_id` on a follow-up call that needs the same context. A completed run
-alone does not prove that files are saved: `file_source.state` `ready` with no `save_failure` means they are saved.
+### Send a task
 
-File references: a completed run's `files` are URLs readable with the same bearer token
-as the tool call, and `read_workspace_file` reads any file of a saved revision (the
-Workspace's current one, a worker's, or a changeset's). A path inside the agent's
-environment such as `/workspace/reports/a.md` is not a URL; read it through one of those.
+`send_workspace_message` (`workspace_id`, `message`) runs a task in the Workspace's main
+conversation, or in the one named by `session_id`. Use it for most work, including work
+that can be split: the Workspace's own agent splits it between several agents, merges their
+changes and fixes conflicts.
 
-Human input: a run started through this connector pauses before each action outside the
-agent's own environment (connected-account and MCP writes, outbound HTTP writes, git push,
-publishing, deploys, email and others) and waits until the account owner approves that one
-action. `awaiting_input` can mean an approval or a question. Show the pending
-request to the human. An MCP client cannot approve an action or grant `always_allow`:
-`answer_pending_input` can deny a request or answer a question the agent asks. Each
-awaiting approval has an `approve_url`; give it to the human, who approves in the
-Plori web app. After an answer or an approval, follow the exact
-`continuation_run_id` returned by `get_run_result`. `answer_pending_input` returns the
-continuation run's `run_id`, or `continuation_pending: true` while the paused run's files
-are still being saved; then poll `get_run_result` on the paused run until
-`continuation_run_id` is set, and poll that run.
-A historical run can retain `awaiting_input` after its input has been answered.
-`list_pending_inputs` returns the current queue. A row with `consent_tool`
-represents an outward write. Only the human can approve it or grant standing consent
-for it, in the Plori web app.
+- The call holds until the run ends, pauses for input, or the hold ends: 25 seconds by
+  default, 50 for Codex, up to 30 minutes for Claude Code 2.1.212 or later, and at most 50
+  without an MCP progressToken. `wait_seconds` sets it (up to 1800). `wait=false` returns
+  at once.
+- Pass the result's `agent_id` to `get_run_result`, `cancel_run`, `list_runs` and
+  `list_pending_inputs`.
+- A running result has `run_id` and `poll_after_seconds`. After that delay call
+  `get_run_result` with `wait=true` until the run completes or is `awaiting_input`.
+- Reuse `session_id` to keep context. 409 `conversation_busy`: that conversation's run is
+  still going.
+- A retry with the same `idempotency_key` returns the original run for 24 hours.
+  `max_turn_tokens` caps the turn. `cancel_run` stops a run.
 
-A paused run is returned inline with status `awaiting_input`. Clients that negotiate the
-MCP Tasks extension receive a task handle instead and can subscribe to its status. In both
-cases a call that has returned does not report later changes: poll, or keep a subscription.
+### Files
 
-Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
-fire_at) schedules a later run. The result has `status: "awaiting_confirmation"` and a
-`confirm_url`. Show the human the prompt, the time and the `confirm_url`; the run
-starts only after the human confirms it in the Plori web app.
+- Only files under `/workspace` persist between runs. Software installed elsewhere and
+  processes a run starts do not. Use `TMPDIR` for temporary files.
+- A completed run does not prove its files are saved: wait for `file_source.state`
+  `ready` with no `save_failure`.
+- A completed run's `files` are URLs readable with the same bearer token.
+  `read_workspace_file` reads a saved version: `current_revision`, an agent's
+  `saved_revision_id`, or a changeset's `base_revision`, `incoming_revision` or
+  `result_revision`. A path such as `/workspace/a.md` is not a URL.
 
-Workers: to run several tasks at once in one Workspace, `create_workspace_worker`
-(`workspace_id`, `task`, `idempotency_key`) starts a worker on its own copy of the
-Workspace files and returns `worker_request_id`, `agent_id` and `task_group_id`. Pass
-that `task_group_id` to later workers so they share one token limit. Poll
-`get_workspace_worker` (or `list_workspace_workers`) until `save_state` is `ready`.
-A completed run alone does not mean the files are saved. `get_run_result` with the
-worker's `run_id` and `agent_id` reads its reply, `steer_workspace_worker` sends a
-message into its running turn, `cancel_run` stops one worker and
-`stop_workspace_task_group` stops a group. Workers started through this connector pause
-before outward actions, like other runs. `get_workspace_costs` reports what the runs
-cost.
+### Approvals and questions
 
-Review: `submit_workspace_changeset` submits a worker's saved files for review against
-the Workspace's current files. Poll `get_workspace_changeset` until `compared` is true
-and `phase` is `review_ready`, read files with `read_workspace_file` (`revision_id` =
-the changeset's `incoming_revision`), then call `accept_workspace_changeset` with
-`expected_current_revision` = `comparison_current_revision` and your
-`validation_evidence`, or `reject_workspace_changeset`. After one changeset is
-accepted, submit the next worker again so it is compared with the new current files.
-Copy deletion, file writes to a copy, conflict resolution and retention pins stay in
-the REST API and the CLI.
+- A run started through MCP or a schedule pauses before each action outside the Workspace
+  (connected-account and MCP writes, outbound HTTP writes, git push, publishing, deploys,
+  email, public tunnels, irreversible browser actions, workflow activation) until the
+  account owner approves that one action in the Plori web app.
+- `awaiting_input` is an approval or a question. Show it to the human, with the approval's
+  `approve_url`.
+- You cannot approve or grant `always_allow`. `answer_pending_input` can only deny a
+  request or answer a question. Never send secrets through it.
+- Then follow the `continuation_run_id` from `get_run_result`. `answer_pending_input`
+  returns the continuation's `run_id`, or `continuation_pending: true` while files save;
+  then poll the paused run until `continuation_run_id` is set.
+- `list_pending_inputs` is the current queue; an old run can keep `awaiting_input`. A
+  `consent_tool` row is an outward write: only the human approves it or grants standing
+  consent, in the web app.
+- Clients with the MCP Tasks extension get a task handle instead. A returned call does not
+  report later changes: poll, or keep a subscription.
 
-Workflows, usage and disk reports, trash and connected accounts are not on the MCP
-server; the REST API and the CLI cover them.
+### Scheduled runs
+
+`schedule_run` (`agent_id`, `prompt`, `delay_seconds` or an RFC3339 `fire_at`) returns
+`status: "awaiting_confirmation"` and a `confirm_url`. Show the human the prompt, the time
+and the `confirm_url`. The run is queued only after the owner confirms in the web app.
+
+### Run several agents yourself
+
+Only for a client that manages the agents itself. Each agent works on its own copy of the
+files; your client completes or discards each merge.
+
+1. `create_workspace_worker` (`workspace_id`, `task`, `idempotency_key`) returns
+   `agent_id` and `task_group_id` at once; the agent queues while capacity is busy. Pass
+   `task_group_id` to later calls to share one token limit; `get_workspace_costs` reports
+   cost.
+2. Poll `get_workspace_worker` or `list_workspace_workers` until `save_state` is `ready`.
+   `get_run_result` (`run_id`, `agent_id`) reads the reply and approval requests.
+   `steer_workspace_worker` messages a running turn (409 `run_not_running` if it has not
+   started, is paused or has ended). `cancel_run` stops one agent,
+   `stop_workspace_task_group` a group.
+3. `submit_workspace_changeset` submits the saved files; Plori merges them with the current
+   files.
+4. Poll `get_workspace_changeset` until `compared` is true. `phase` `review_ready`: ready
+   to complete. `needs_resolution`: conflicts. `recompare_required`: submit again.
+5. `accept_workspace_changeset` completes the merge (`expected_current_revision` = the
+   `comparison_current_revision`; `validation_evidence` = 1-32 short statements of the
+   checks you made). `reject_workspace_changeset` discards it. After accept, poll until
+   `state` is `accepted` and `result_revision` is set.
+
+Accept errors:
+
+- 409 `current_revision_conflict`: another merge landed first. Submit again, then repeat
+  steps 4 and 5.
+- 409 `workspace_changeset_unresolved`: not computed yet, or it has conflicts. A merge with
+  conflicts cannot be completed through MCP. To have conflicts fixed, send the task to the
+  Workspace with `send_workspace_message`; its agent fixes conflicts.
+- 409 `workspace_changeset_busy`: a run or file operation is active. Accept after it ends.
+
+These agents pause before outward actions like other runs. Workflows, usage and disk
+reports, trash and connected accounts are not on MCP; use the web app, REST or the CLI.
 
 ### Workspace CLI commands
 
-CLI examples include the executable. When a tool takes an argument vector, start
-with `plori`, then the command and its arguments.
-
-Use exact IDs, not display names, for Workspace resources. Run `plori GROUP --help`
-for the action's flags. These are CLI commands, not MCP tools. The command groups are `workspace`,
-`independent-agent`, `copy`, `revision`, `workspace-files`, `worker`, `task-group`,
-`changeset` and `operation`. They do not use an implicit active Workspace.
-
-- `plori workspace create NAME --idempotency-key KEY` creates a default manager.
-  Add `--manager ID` to select an existing agent. A manager that gets no messages does not run.
-- `plori independent-agent create NAME --idempotency-key KEY` creates an executor.
-  `plori independent-agent list` includes independent identities. Legacy
-  `plori agents` keeps its compatibility inventory.
-- `plori copy checkpoint WORKSPACE_ID COPY_ID --idempotency-key KEY` saves a copy.
-  `plori copy clone WORKSPACE_ID --base-revision REVISION_ID --idempotency-key KEY`
-  requests a proposal copy. Use `plori operation wait WORKSPACE_ID OPERATION_ID`
-  to observe readiness before using its result.
-- `plori task-group create WORKSPACE_ID --budget 2000000 --idempotency-key KEY`
-  gives one worker a bounded token allowance. Increase it for concurrent workers.
-- `plori worker spawn WORKSPACE_ID TASK --copy COPY_ID --task-group GROUP_ID
-  --executor AGENT_ID --session SESSION_ID --idempotency-key KEY` selects a worker
-  continuation. For new work, use `--name NAME` instead of `--executor` and omit
-  `--session`. Use `plori worker status WORKSPACE_ID REQUEST_ID --wait` to inspect it.
-- `plori workspace-files read WORKSPACE_ID PATH --revision REVISION_ID --json`
-  reads saved text. `read-bytes` returns immutable media as base64 JSON.
-  Copy writes require `--copy`, `--file` and an observed `--if-match` ETag.
-  Use `--if-match 0` only to create a missing file.
-- `plori changeset accept WORKSPACE_ID CHANGESET_ID --current-revision REVISION_ID
-  --evidence TEXT --idempotency-key KEY` accepts reviewed changes. Use the revision
-  from the comparison, not a remembered root revision. Inspect stale/conflicting
-  responses and review again.
-- `plori agent-stop AGENT_ID` stops execution. `plori agent-retire AGENT_ID --yes`
-  prevents future assignments. `plori workspace delete WORKSPACE_ID --yes`
-  requests destructive deletion. Use `--yes` only for an authorized action.
-
-A task group's budget is a token limit its workers share, not a cost; `get_workspace_costs`
-reports cost. Omit the optional budget fields to keep the configured defaults; an explicit
-advisor budget of 0 disables advisor reviews. The single-worker example in
-https://plori.ai/docs/cli shows the sizes.
+The CLI also covers what MCP does not. Use exact IDs; there is no implicit active Workspace.
+Groups: `workspace`, `independent-agent`, `copy`, `revision`, `workspace-files`,
+`worker`, `task-group`, `changeset`, `operation`; `plori GROUP --help` lists actions and
+flags. Commands that create something take `--idempotency-key KEY`. To complete a merge:
+`plori changeset accept WORKSPACE_ID CHANGESET_ID --current-revision REVISION_ID
+--evidence TEXT --idempotency-key KEY` with the `comparison_current_revision`. Writes to a
+copy need the `--if-match` ETag you read. Use `--yes` (`agent-retire`,
+`workspace delete`) only when the human authorized the action. Examples:
+https://plori.ai/docs/cli
 
 ## Run agents in the background
 
-A run can outlast the call that started it. Pick the option below that fits your
-client, instead of holding a call open for a job that takes minutes.
+Do not hold one call open for a job that takes minutes.
 
-- **Claude Code**: the server can hold a call up to 30 minutes for Claude Code 2.1.212 or
-  later, but Claude Code moves a call that runs past about two minutes to the background
-  and can drop its result, so hold each `get_run_result` call to about 100 seconds
-  (`wait_seconds: 100`). Keep at most one held call per run in flight. Between
-  calls, poll with `wait=false` on a short cadence. Read `tool_progress`
-  (`completed_count`, `last_completed_at`) and `elapsed_seconds` on the returned
-  result to judge progress. To watch every run on the account instead, use `Monitor`
-  on `wss://api.plori.ai/v1/events` with the WebSocket protocols
-  `["plori", "plori.bearer.<API key>"]`. Running `plori watch` in a background shell
-  works too.
-- **Codex**: set `tool_timeout_sec` on the plori server entry in `config.toml` to at
-  least as long as the work you expect. Another option: run `plori watch` in a
-  background shell, then check `plori inbox` for what finished.
-- **Any other client**: pass `wait=false` to `send_workspace_message`. Call
-  `get_run_result` again after `poll_after_seconds`. Repeat until the status is
-  terminal or `awaiting_input`.
+- **Claude Code** moves a call past about two minutes to the background and can drop its
+  result. Hold `get_run_result` for about 100 seconds (`wait_seconds: 100`), one held call
+  per run, and poll with `wait=false` in between, or run `plori watch` in a background
+  shell.
+- **Codex**: set `tool_timeout_sec` on the plori entry in `config.toml` to the expected
+  duration, or run `plori watch` in a background shell and check `plori inbox`.
+- **Other clients**: pass `wait=false`, then call `get_run_result` after each
+  `poll_after_seconds` until the status is terminal or `awaiting_input`.
 
 ## CLI commands
 
-The CLI covers the same operations and more, including those that are not MCP tools. An
-agent is addressable by name or id, and every command accepts `--json`.
+Agents are addressed by name or ID. Every command accepts `--json`.
 
-- `plori attach <name|session-id>`: open a live session in the terminal (history, a
-  prompt, streaming output, and approvals answered in place). It is interactive and
-  expects a human at the keyboard: as a calling agent, prefer the one-shot commands
-  below, and use `--read-only` if you only need to tail a session. It writes plain
-  text, never JSON, and redirecting stdin or stdout already selects read-only.
-- `plori create <name>`: get or create an agent by name (reusing a name returns the
-  existing agent). `plori agents`, `plori agent <name>`, `plori set-model <name> <model>`,
-  `plori delete <name> --yes`.
-- `plori run <name> "message"`: send a message and, by default, wait for the reply and
-  print it. Add `--follow` to stream the turn live, `--jsonl` for a machine-readable
-  event stream, or `--no-wait` to get a run id back immediately. Pass `-` as the
-  message to read it from stdin.
-- `plori result <name> <run-id>` (add `--wait`, bounded by `--wait-seconds`, to
-  block) and `plori runs <name>` read run status and history.
-- `plori watch [--agent <name|id>]...`: stream run endings and human-input requests as
-  JSON lines until stopped. Run it in a background shell alongside a `--no-wait` run.
-- `plori inbox [--ack <run-id>]`: one-shot summary of what ended since your last
-  acknowledgement, plus everything waiting on you.
-- `plori inputs <name>` lists runs paused on a human request; `plori answer <run-id>
-  <tool-call-id> --approve|--deny|--value <v>` replies. Add `--always-allow` to an
-  `--approve` (only on the human's explicit instruction) to also grant the standing
-  write consent.
-- `plori schedule <name> "prompt" --in <seconds>` (or `--at <rfc3339>`) defers a run;
-  `plori schedules <name>` and `plori unschedule <name> <id>` manage them.
-- `plori workflows list [--agent <name|id|none>]`,
-  `plori workflows create <name> [--trigger cron --cron <expr>]`,
-  `plori workflows run <name|id>` (run it now), `plori workflows execution <name|id> <exec-id>`.
-- `plori credits`, `plori usage`, `plori disk` read account state.
+- `plori run <name> "message"` waits for the reply; `--no-wait` returns a run ID.
+  `plori result <name> <run-id> --wait` (bounded by `--wait-seconds`) reads the result.
+- `plori watch` prints run endings and input requests as JSON lines. `plori inbox` lists
+  what ended and what waits on you.
+- `plori inputs <name>`; `plori answer <run-id> <tool-call-id> --approve|--deny|--value <v>`.
+  Add `--always-allow` only on the human's explicit instruction.
+- `plori schedule <name> "prompt" --in <seconds>` (or `--at <rfc3339>`).
+- `plori attach` is for a human at the keyboard; an agent uses `--read-only` to tail.
 
-`plori run`, `plori result --wait` (bounded by `--wait-seconds`), and `plori watch`
-report the run's outcome as an exit code:
-
-| code | meaning |
-| ---- | ------- |
-| 0 | succeeded |
-| 1 | API or runtime failure |
-| 2 | usage error |
-| 3 | missing, rejected, or expired credentials |
-| 4 | could not reach the control plane |
-| 10 | the run is awaiting human input |
-| 20 | the run ended in error |
-| 30 | the run was cancelled |
-| 40 | a wait ran out with the run still going |
+Exit codes of `run`, `result --wait` and `watch`: 0 succeeded, 1 API or runtime failure,
+2 usage error, 3 credentials missing, rejected or expired, 4 control plane unreachable, 10
+awaiting human input, 20 run error, 30 cancelled, 40 wait ran out with the run still going.
 
 ## Costs and limits
 
-Running an agent spends credits; check `get_credits` before invoking. The account's
-plan sets its included monthly credits and its disk. It also sets the agent count,
-active workflows, workflow concurrency, and the length of one run.
-
-Registered accounts have no limit on concurrent agent runs.
+Runs spend credits. The plan sets included credits, disk, agent count, workflow limits and
+the length of one run. Registered accounts have no limit on concurrent agent runs.
 Anonymous trials allow at most 2 concurrent agent runs across their agents.
-A third run makes `send_workspace_message` return 429 with advice to register free to remove the limit.
-
-The plan does not set the model: the
-Plori Router picks it, the same way on every plan. Every call is scoped to the account
-that owns the credential; there is no cross-account access.
-
-### What to expect
-
-Cost and duration scale with what a turn does, not with its length alone. Three runs
-measured on 2026-09-13 on one agent:
-
-- A read-only account inventory (45 tool calls): about $0.14, 5 minutes.
-- A planning turn that read 13 web pages and one ads API (67 calls): about $1.39,
-  9 minutes.
-- A build turn (110 calls): about $0.58, 30 minutes.
-
-Plori bills model usage, but automatically refunds charges when a platform fault stops
-the run, subject to a per-account rolling 24-hour limit. `max_turn_tokens` and
-`max_turn_seconds` cap a turn's tokens and wall time.
+A third run makes `send_workspace_message` return 429 with advice to register free.
+`max_turn_tokens` and `max_turn_seconds` cap a turn.
 
 ## More
 
