@@ -1,6 +1,6 @@
 ---
 name: plori
-description: Create plori Workspaces and send work to the agents that run in them (each an AI agent in its own cloud environment) from any MCP client, the plori CLI, or over REST. Covers authentication (OAuth 2.1 or API key), creating Workspaces, sending messages and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
+description: Create plori Workspaces (cloud project files with saved revisions) and send work to the AI agents that run in them from any MCP client, the plori CLI, or over REST. Covers authentication (OAuth 2.1 or API key), creating Workspaces, sending messages and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
 ---
 
 # Using plori from an agent
@@ -9,10 +9,18 @@ If you were asked to set up plori, do it by following the Connect section below:
 plori MCP server to the client you are running in, authenticate the account owner, and
 confirm the tools respond before reporting success.
 
-plori (https://plori.ai) gives you AI agents. Each agent runs in its own cloud environment with a
-persistent disk, a shell, developer tools, and memory. You can create Workspaces, send their agents
-work, and read their replies programmatically. Each agent runs inside a Workspace, which
-holds the durable files, a main conversation and the run history.
+plori (https://plori.ai) runs AI agents in cloud Workspaces. A Workspace holds the project's files
+with saved revisions, a main conversation and the run history. Its agents work on the files
+under `/workspace` with a shell and network access.
+
+You can run several workers in one Workspace at the same time. Each worker gets its own copy
+of the Workspace files, so workers do not change each other's files or the current files. To
+bring a worker's changes into the Workspace, submit them as a changeset, review the compared
+paths, and accept the changeset. Only an accepted changeset changes the Workspace's current
+files. A run starts on a pre-booted VM from a pool when one is free. The platform makes each
+worker's copy from a saved revision, so you do not upload or clone the files.
+
+You can create Workspaces, send work to their agents, and read the replies programmatically.
 
 ## Connect
 
@@ -176,15 +184,15 @@ Pass `wait=false` to `send_workspace_message` when you plan to poll instead of h
 call open (see "Run agents in the background" below). Use `max_turn_tokens` to cap
 the turn. `cancel_run` requests cancellation, and `list_runs` lists recent
 runs. A new message is refused with 409 `conversation_busy` while a run in the same
-conversation executes. Default task outputs go to the Workspace's persistent
+conversation executes. Default task outputs go to the Workspace files under
 `/workspace`. Use `TMPDIR` only for temporary files.
 
-Persistence: between runs in the same Workspace, the disk under `/workspace`
-persists: installed tools, cloned repos, and files. Software installed outside
-`/workspace` is not kept. Ask the agent to write findings under `/workspace` when a later
-run will need them. Reuse the returned `session_id` on a follow-up call that needs the
-same context. A completed run alone does not prove that files are saved:
-`file_source.state` `ready` with no `save_failure` means they are saved.
+Persistence: between runs in the same Workspace, only the files under `/workspace`
+persist, including cloned repositories. Software that a run installs outside `/workspace`
+does not continue to the next run. The same is true for processes that a run starts. Ask
+the agent to write findings under `/workspace` when a later run will need them. Reuse the
+returned `session_id` on a follow-up call that needs the same context. A completed run
+alone does not prove that files are saved: `file_source.state` `ready` with no `save_failure` means they are saved.
 
 File references: a completed run's `files` are URLs readable with the same bearer token
 as the tool call, and `read_workspace_file` reads any file of a saved revision (the
