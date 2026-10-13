@@ -145,9 +145,9 @@ The MCP server has 23 tools. Every call is scoped to the credential's account.
 
 - `list_workspaces`: pass `workspace_id` for one. `storage_readiness` is present while
   its storage starts.
-- `create_workspace` (`name`, `idempotency_key`) returns `id` and
-  `default_manager_agent_id`. Without `default_manager_agent_id` it creates a default
-  agent, which counts against the agent limit. Names are not unique: reuse a Workspace.
+- `create_workspace` (`name`, `idempotency_key`) returns `id` and `default_agent_id`,
+  the Workspace's agent. Without `default_manager_agent_id` it creates that agent, which
+  counts against the agent limit. Names are not unique: reuse a Workspace.
 - `delete_workspace` permanently deletes its files, saved versions, copies and
   conversations.
 - `get_credits` returns the balance. Check it before long work.
@@ -159,14 +159,12 @@ conversation, or in the one named by `session_id`. Use it for most work, includi
 that can be split: the Workspace's own agent splits it between several agents, merges their
 changes and fixes conflicts.
 
-- The call holds until the run ends, pauses for input, or the hold ends: 25 seconds by
-  default, 50 for Codex, up to 30 minutes for Claude Code 2.1.212 or later, and at most 50
-  without an MCP progressToken. `wait_seconds` sets it (up to 1800). `wait=false` returns
-  at once.
-- Pass the result's `agent_id` to `get_run_result`, `cancel_run`, `list_runs` and
-  `list_pending_inputs`.
-- A running result has `run_id` and `poll_after_seconds`. After that delay call
-  `get_run_result` with `wait=true` until the run completes or is `awaiting_input`.
+- The call holds until the run ends, pauses for input, or the hold ends. The server picks
+  a hold that fits your client; use that default.
+- If the result is `running`, call `get_run_result` (`workspace_id`, `run_id`) after
+  `poll_after_seconds`. Repeat until the run completes or is `awaiting_input`.
+- `get_run_result`, `cancel_run`, `list_runs`, `list_pending_inputs` and
+  `schedule_run` take the `workspace_id`.
 - Reuse `session_id` to keep context. 409 `conversation_busy`: that conversation's run is
   still going.
 - A retry with the same `idempotency_key` returns the original run for 24 hours.
@@ -204,7 +202,7 @@ changes and fixes conflicts.
 
 ### Scheduled runs
 
-`schedule_run` (`agent_id`, `prompt`, `delay_seconds` or an RFC3339 `fire_at`) returns
+`schedule_run` (`workspace_id`, `prompt`, `delay_seconds` or an RFC3339 `fire_at`) returns
 `status: "awaiting_confirmation"` and a `confirm_url`. Show the human the prompt, the time
 and the `confirm_url`. The run is queued only after the owner confirms in the web app.
 
@@ -218,7 +216,7 @@ files; your client completes or discards each merge.
    `task_group_id` to later calls to share one token limit; `get_workspace_costs` reports
    cost.
 2. Poll `get_workspace_worker` or `list_workspace_workers` until `save_state` is `ready`.
-   `get_run_result` (`run_id`, `agent_id`) reads the reply and approval requests.
+   `get_run_result` (`run_id`, `workspace_id`) reads the reply and approval requests.
    `steer_workspace_worker` messages a running turn (409 `run_not_running` if it has not
    started, is paused or has ended). `cancel_run` stops one agent,
    `stop_workspace_task_group` a group.
@@ -255,18 +253,15 @@ copy need the `--if-match` ETag you read. Use `--yes` (`agent-retire`,
 `workspace delete`) only when the human authorized the action. Examples:
 https://plori.ai/docs/cli
 
-## Run agents in the background
+## Long runs
 
-Do not hold one call open for a job that takes minutes.
+Use the default wait. If the result is `running`, call `get_run_result` after
+`poll_after_seconds`, until the run completes or is `awaiting_input`.
 
-- **Claude Code** moves a call past about two minutes to the background and can drop its
-  result. Hold `get_run_result` for about 100 seconds (`wait_seconds: 100`), one held call
-  per run, and poll with `wait=false` in between, or run `plori watch` in a background
-  shell.
-- **Codex**: set `tool_timeout_sec` on the plori entry in `config.toml` to the expected
-  duration, or run `plori watch` in a background shell and check `plori inbox`.
-- **Other clients**: pass `wait=false`, then call `get_run_result` after each
-  `poll_after_seconds` until the status is terminal or `awaiting_input`.
+Troubleshooting, optional: if your client drops the results of long calls, pass
+`wait_seconds` with a shorter hold, or `wait=false`. In Codex, `tool_timeout_sec` on the
+plori entry in `config.toml` sets how long a call can last. `plori watch` in a background
+shell prints run endings and input requests.
 
 ## CLI commands
 
