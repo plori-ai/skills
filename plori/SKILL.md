@@ -168,7 +168,7 @@ changes and fixes conflicts.
 - Reuse `session_id` to keep context. 409 `conversation_busy`: that conversation's run is
   still going.
 - A retry with the same `idempotency_key` returns the original run for 24 hours.
-  `max_turn_tokens` caps the turn. `cancel_run` stops a run.
+  `max_turn_tokens` sets an optional token ceiling for the turn. `cancel_run` stops a run.
 
 ### Files
 
@@ -213,8 +213,8 @@ files; your client completes or discards each merge.
 
 1. `create_workspace_worker` (`workspace_id`, `task`, `idempotency_key`) returns
    `agent_id` and `task_group_id` at once; the agent queues while capacity is busy. Pass
-   `task_group_id` to later calls to share one token limit; `get_workspace_costs` reports
-   cost.
+   `task_group_id` to later calls to group their costs and stop request;
+   `get_workspace_costs` reports cost. Worker agents do not count against the agent limit.
 2. Poll `get_workspace_worker` or `list_workspace_workers` until `save_state` is `ready`.
    `get_run_result` (`run_id`, `workspace_id`) reads the reply and approval requests.
    `steer_workspace_worker` messages a running turn (409 `run_not_running` if it has not
@@ -286,7 +286,8 @@ Runs spend credits. The plan sets included credits, disk, agent count, workflow 
 the length of one run. Registered accounts have no limit on concurrent agent runs.
 Anonymous trials allow at most 2 concurrent agent runs across their agents.
 A third run makes `send_workspace_message` return 429 with advice to register free.
-`max_turn_tokens` and `max_turn_seconds` cap a turn.
+Registered accounts have no token ceiling per turn unless `max_turn_tokens` sets one.
+`max_turn_seconds` sets a turn's time budget.
 
 ## More
 
