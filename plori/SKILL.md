@@ -1,6 +1,6 @@
 ---
 name: plori
-description: Run AI agents in plori Workspaces from an MCP client, the plori CLI or REST. Covers sign-in, Workspaces, tasks and replies, running several agents and completing their merge, approvals, and scheduled runs.
+description: Runs tasks on Plori cloud agents that continue after the chat ends, such as background or parallel builds, scheduled automations, long jobs and research saved as files. Not for quick tasks.
 ---
 
 # Using plori from an agent
@@ -139,15 +139,19 @@ REST: `https://api.plori.ai/v1` with the same bearer token. Detail: https://plor
 
 ## Tools
 
-The MCP server has 23 tools. Every call is scoped to the credential's account.
+The MCP server has 23 tools. Invitees use their own login, API keys and OAuth
+sessions. Workspace calls resolve access to the owning account from the resource.
 
 ### Workspaces
 
-- `list_workspaces`: pass `workspace_id` for one. `storage_readiness` is present while
-  its storage starts.
+- `list_workspaces` lists your own and shared Workspaces with `account`
+  (`user_id`, `email`) and your `role` (`owner`, `member` or `viewer`).
+  Pass `workspace_id` for one. `storage_readiness` is present while its storage starts.
 - `create_workspace` (`name`, `idempotency_key`) returns `id` and `default_agent_id`,
   the Workspace's agent. Without `default_manager_agent_id` it creates that agent, which
-  counts against the agent limit. Names are not unique: reuse a Workspace.
+  counts against the agent limit. Optional `account` selects a shared account by user id.
+  Omit it for your own account. Members can create there. Viewers cannot. The result
+  includes `account` and `role`. Names are not unique: reuse a Workspace.
 - `delete_workspace` permanently deletes its files, saved versions, copies and
   conversations.
 - `get_credits` returns the balance. Check it before long work.
@@ -159,15 +163,26 @@ conversation, or in the one named by `session_id`. Use it for most work, includi
 that can be split: the Workspace's own agent splits it between several agents, merges their
 changes and fixes conflicts.
 
-- The call holds until the run ends, pauses for input, or the hold ends. The server picks
-  a hold that fits your client; use that default.
+- For a new or continued run, the call holds until the run ends, pauses for input,
+  or the hold ends. The server picks a hold that fits your client. Use that default.
 - If the result is `running`, call `get_run_result` (`workspace_id`, `run_id`) after
   `poll_after_seconds`. Repeat until the run completes or is `awaiting_input`.
 - `get_run_result`, `cancel_run`, `list_runs`, `list_pending_inputs` and
   `schedule_run` take the `workspace_id`.
-- Reuse `session_id` to keep context. 409 `conversation_busy`: that conversation's run is
-  still going.
-- A retry with the same `idempotency_key` returns the original run for 24 hours.
+- Reuse `session_id` to keep context. An idle conversation starts a run. While running,
+  plain text returns `status: "steering"` or `"queued"` with `steer_id`.
+- If the paused run has exactly one ordinary question assigned to you, your message
+  answers it. Otherwise it queues, and `pending_inputs` names the request and assignee.
+  A message never cancels a pending request. If the result has `status: "answered"`
+  and `continuation_pending: true`, read the paused run until it reports
+  `continuation_run_id`. Do not submit the answer again.
+- A queued or steering receipt returns immediately, regardless of `wait`. It includes
+  `run_id`, `session_id`, `agent_id`, `workspace_id`, `url` and `poll_after_seconds`.
+  Its `run_id` is the running or paused run, not a result for this message. Use
+  `list_runs` to find a later queued turn. No lookup connects `steer_id` to that run.
+- 409 `conversation_busy` still applies to attachments or run options in a busy
+  conversation, and to working-copy conflicts. Send attachments and options when idle.
+- A retry with the same `idempotency_key` returns the original run or message receipt for 24 hours.
   `max_turn_tokens` sets an optional token ceiling for the turn. `cancel_run` stops a run.
 
 ### Files
@@ -197,6 +212,13 @@ changes and fixes conflicts.
 - `list_pending_inputs` is the current queue; an old run can keep `awaiting_input`. A
   `consent_tool` row is an outward write: only the human approves it or grants standing
   consent, in the web app.
+- Requests go to the worker's creator, or to the owner for the manager. The owner can
+  also answer a worker's request. Other members can read it and may answer after the
+  account's timeout, 60 minutes by default. Viewers never answer. Standing grants and
+  secret answers stay owner-only. `list_pending_inputs` includes `assigned_to`,
+  `open_to_members_at` and `can_act` for the caller. Credential restrictions still apply.
+- A member's monthly spend cap can refuse a new run with 402. Schedules, previews,
+  workflows, Workspace settings and deletion are owner-only in M1.
 - Clients with the MCP Tasks extension get a task handle instead. A returned call does not
   report later changes: poll, or keep a subscription.
 
