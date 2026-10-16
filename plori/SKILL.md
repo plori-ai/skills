@@ -214,7 +214,7 @@ changes and fixes conflicts.
   consent, in the web app.
 - Requests go to the worker's creator, or to the owner for the manager. The owner can
   also answer a worker's request. Other members can read it and may answer after the
-  account's timeout, 60 minutes by default. Viewers never answer. Standing grants and
+  account's timeout, 30 minutes by default. Viewers never answer. Standing grants and
   secret answers stay owner-only. `list_pending_inputs` includes `assigned_to`,
   `open_to_members_at` and `can_act` for the caller. Credential restrictions still apply.
 - A member's monthly spend cap can refuse a new run with 402. Schedules, previews,
@@ -295,7 +295,7 @@ Agents are addressed by name or ID. Every command accepts `--json`.
   what ended and what waits on you.
 - `plori inputs <name>`; `plori answer <run-id> <tool-call-id> --approve|--deny|--value <v>`.
   Add `--always-allow` only on the human's explicit instruction.
-- `plori schedule <name> "prompt" --in <seconds>` (or `--at <rfc3339>`).
+- `plori schedules create <workspace> "prompt" --in <seconds>` (or `--at <rfc3339>`).
 - `plori attach` is for a human at the keyboard; an agent uses `--read-only` to tail.
 
 Exit codes of `run`, `result --wait` and `watch`: 0 succeeded, 1 API or runtime failure,
