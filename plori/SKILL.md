@@ -139,7 +139,7 @@ REST: `https://api.plori.ai/v1` with the same bearer token. Detail: https://plor
 
 ## Tools
 
-The MCP server has 23 tools. Invitees use their own login, API keys and OAuth
+The MCP server has 24 tools. Invitees use their own login, API keys and OAuth
 sessions. Workspace calls resolve access to the owning account from the resource.
 
 ### Workspaces
@@ -195,6 +195,10 @@ changes and fixes conflicts.
   `read_workspace_file` reads a saved version: `current_revision`, an agent's
   `saved_revision_id`, or a changeset's `base_revision`, `incoming_revision` or
   `result_revision`. A path such as `/workspace/a.md` is not a URL.
+- `upload_workspace_file` writes a file into the Workspace's current files. Pass text up
+  to 262144 bytes as `content`. For a larger or binary file (up to 32 MiB), omit
+  `content` and run the returned `curl` command in a shell within 10 minutes. Its URL
+  accepts one upload.
 
 ### Approvals and questions
 
@@ -231,7 +235,7 @@ and the `confirm_url`. The run is queued only after the owner confirms in the we
 ### Run several agents yourself
 
 Only for a client that manages the agents itself. Each agent works on its own copy of the
-files; your client completes or discards each merge.
+files. Plori submits changed files when a run completes normally and accepts a clean comparison.
 
 1. `create_workspace_worker` (`workspace_id`, `task`, `idempotency_key`) returns
    `agent_id` and `task_group_id` at once; the agent queues while capacity is busy. Pass
@@ -242,11 +246,13 @@ files; your client completes or discards each merge.
    `steer_workspace_worker` messages a running turn (409 `run_not_running` if it has not
    started, is paused or has ended). `cancel_run` stops one agent,
    `stop_workspace_task_group` a group.
-3. `submit_workspace_changeset` submits the saved files; Plori merges them with the current
-   files.
-4. Poll `get_workspace_changeset` until `compared` is true. `phase` `review_ready`: ready
-   to complete. `needs_resolution`: conflicts. `recompare_required`: submit again.
-5. `accept_workspace_changeset` completes the merge (`expected_current_revision` = the
+3. Check `get_workspace_worker` (`change_status`, `changeset_id`), then `get_workspace_changeset`.
+   Use `submit_workspace_changeset` only for saved, unsubmitted work after an error, cancellation
+   or stop, or after `recompare_required`.
+4. Poll `get_workspace_changeset`: `accepted` with `result_revision` confirms the files landed.
+   `needs_resolution`: ask the Workspace's agent to combine files with `send_workspace_message`,
+   or reject and start another worker.
+5. For `review_ready`, `accept_workspace_changeset` completes the merge (`expected_current_revision` = the
    `comparison_current_revision`; `validation_evidence` = 1-32 short statements of the
    checks you made). `reject_workspace_changeset` discards it. After accept, poll until
    `state` is `accepted` and `result_revision` is set.
